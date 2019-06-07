@@ -4,6 +4,7 @@ import sys
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
 from PostProcess_AnisotropyTensor import evaluateInvariantBasisCoefficients
+from FeatureExtraction import getFeatureSet1, splitTrainTestData, inputOutlierDetection
 import time as t
 # For Python 2.7, use cpickle
 try:
@@ -11,7 +12,6 @@ try:
 except ModuleNotFoundError:
     import pickle
 
-from Utilities import sampleData
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 
@@ -22,21 +22,27 @@ User Inputs, Anything Can Be Changed Here
 caseName = 'ALM_N_H_OneTurb'  # str
 # Absolute directory of this flow case
 caseDir = '/media/yluan'  # str
-# Which time to extract input and ouput for ML
-time = 'latest'  # str/float/int or 'latest'
+# Which time to extract input and output for ML
+time = 'last'  # str/float/int or 'last'
 # Average fields of interest for reading and processing
 fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
           'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean')  # list/tuple(str)
 # What keyword does the gradient fields contain
 gradFieldKW = 'grad'  # str
-# Flow field counter-clockwise rotation in x-y plane
-# so that tensor fields are parallel/perpendicular to flow direction
-fieldRot = np.pi/6  # float [rad]
-# When fieldRot is not 0, whether to infer spatial correlation fields and rotate them
-# Otherwise the name of the fields needs to be specified
-# Strain rate / rotation rate tensor fields not supported
-if fieldRot != 0.:
-    spatialCorrelationFields = ('infer',)  # list/tuple(str) or list/tuple('infer')
+# Whether process field data, invariants, features from scratch,
+# or use raw field pickle data and process invariants and features
+# or use raw field and invariants pickle data and process features
+process_raw_field, process_invariants = False, False  # bool
+# The following is only relevant is process_raw_field is True
+if process_raw_field:
+    # Flow field counter-clockwise rotation in x-y plane
+    # so that tensor fields are parallel/perpendicular to flow direction
+    fieldRot = np.pi/6  # float [rad]
+    # When fieldRot is not 0, whether to infer spatial correlation fields and rotate them
+    # Otherwise the name of the fields needs to be specified
+    # Strain rate / rotation rate tensor fields not supported
+    if fieldRot != 0.:
+        spatialCorrelationFields = ('infer',)  # list/tuple(str) or list/tuple('infer')
 
 # Whether confine and visualize the domain of interest, useful if mesh is too large
 confineBox, plotConfinedBox = True, True  # bool; bool
@@ -53,30 +59,29 @@ if confineBox:
     # Only when boxAutoDim is False:
     if boxAutoDim is None:
         # Confine box counter-clockwise rotation in x-y plane
-        boxRot = fieldRot  # float [rad]
+        boxRot = np.pi/6  # float [rad]
         # Confine box origin, width, length, height
         boxOrig = (0, 0, 0)  # (x, y, z)
         boxL, boxW, boxH = 0, 0, 0  # float
 
-# Absolute cap value for Sij and Rij; TB coefficients' basis;  and TB coefficients
-capSijRij, capG, capScalarBasis = 1e9, 100, 1e9  # float/int
-# Whether process field data, invariants, features from scratch,
-# or use raw field pickle data and process invariants and features
-# or use raw field and invariants pickle data and process features
-processRawField, processInvariants = False, True  # bool
+# The following is only relevant if process_invariants is True
+if process_invariants:
+    # Absolute cap value for Sij and Rij; TB coefficients' basis;  and TB coefficients
+    capSijRij, capG, capScalarBasis = 1e9, 1e9, 1e9  # float/int
+
+# Save anything when possible
 saveFields = True  # bool
 
 
 """
 Machine Learning Settings
 """
-# Whether to use sampling to reduce size of input data
-sampling = True  # bool
-# Only if sampling is True
-# Number of samples and whether to use with replacement, i.e. same sample can be re-picked
-sampleSize, replace = 10000, False  # int; bool
 # Use seed for reproducibility, set to None for no seeding
 seed = 12345  # int, None
+# Fraction of data used for testing
+testSize = 0.2  # float
+# Feature set to use as ML input
+fs = '1'  # '1', '12', '123'
 
 
 """
@@ -85,7 +90,7 @@ Process User Inputs, No Need to Change
 # Ensemble name of fields useful for Machine Learning
 mlFieldEnsembleName = 'ML_Fields_' + caseName
 # Automatically select time if time is set to 'latest'
-if time == 'latest':
+if time == 'last':
     if caseName == 'ALM_N_H_ParTurb':
         time = '22000.0918025'
     elif caseName == 'ALM_N_H_OneTurb':
@@ -131,13 +136,13 @@ if not confineBox:
 # Ensemble file name, containing fields related to ML
 mlFieldEnsembleNameFull = mlFieldEnsembleName + '_' + confinedFieldNameSub
 # Initialize case object
-case = FieldData(caseName = caseName, caseDir = caseDir, times = time, fields = fields, save = saveFields)
+case = FieldData(caseName=caseName, caseDir=caseDir, times=time, fields=fields, save=saveFields)
 
 
 """
 Read and Process Raw Field Data
 """
-if processRawField:
+if process_raw_field:
     # Read raw field data specified in fields
     fieldData = case.readFieldData()
     # Rotate fields if fieldRot is not 0
@@ -244,7 +249,7 @@ if processRawField:
     # Since epsilon is only SGS temporal mean,
     # calculate total temporal mean using SGS epsilon and SGS nu
     if all((epsFlag, nuFlag)):
-        epsilon = case.getMeanDissipationRateField(epsilonSGSmean = epsilon, nuSGSmean = nuSGS, saveToTime = time)
+        epsilon = case.getMeanDissipationRateField(epsilonSGSmean=epsilon, nuSGSmean=nuSGS, saveToTime=time)
         epsMax, epsMin = np.amax(epsilon), np.amin(epsilon)
         print(' Max of epsilon is {0}; min of epsilon is {1}'.format(epsMax, epsMin))
 
@@ -285,7 +290,7 @@ if processRawField:
             ax.set_ylim(0, 3000)
             plt.show()
 
-    # Else if not confining domain, save whole field and cell centers
+    # Else if not confining domain, save all whole fields and cell centers
     else:
         case.savePickleData(time, mlFieldEnsemble, fileNames = mlFieldEnsembleNameFull)
         case.savePickleData(time, cc, fileNames = 'cc_' + confinedFieldNameSub)
@@ -293,7 +298,7 @@ if processRawField:
 # Else if directly read pickle data
 else:
     # Load rotated and/or confined field data useful for Machine Learning
-    mlFieldEnsemble = case.readPickleData(time, mlFieldEnsembleNameFull)[mlFieldEnsembleNameFull]
+    mlFieldEnsemble = case.readPickleData(time, mlFieldEnsembleNameFull)
     gradK, k = mlFieldEnsemble[:, :3], mlFieldEnsemble[:, 3]
     epsilon = mlFieldEnsemble[:, 4]
     gradU = mlFieldEnsemble[:, 5:14]
@@ -306,7 +311,7 @@ else:
 """
 Calculate Field Invariants
 """
-if processInvariants:
+if process_invariants:
     # Step 1: strain rate and rotation rate tensor Sij and Rij
     sij, rij = case.getStrainAndRotationRateTensorField(gradU, tke = k, eps = epsilon, cap = capSijRij)
     # Step 2: 10 invariant bases TB
@@ -315,38 +320,53 @@ if processInvariants:
     tb = tb.reshape((tb.shape[0], tb.shape[1], 9))
     # Step 3: anisotropy tensor bij
     bij = case.getAnisotropyTensorField(uuPrime2)
-    # Step 4: evaluate 10 TB coefficients g as output y
-    # g, rmse = case.evaluateInvariantBasisCoefficients(tb, bij, cap = capG, onegToRuleThemAll = False)
-    t0 = t.time()
-    g, gRMSE = evaluateInvariantBasisCoefficients(tb, bij, cap = capG)
-    t1 = t.time()
-    print('\nFinished getInvariantBasisCoefficientsField in {:.4f} s'.format(t1 - t0))
+    # # Step 4: evaluate 10 TB coefficients g as output y
+    # # g, rmse = case.evaluateInvariantBasisCoefficients(tb, bij, cap = capG, onegToRuleThemAll = False)
+    # t0 = t.time()
+    # g, gRMSE = evaluateInvariantBasisCoefficients(tb, bij, cap = capG)
+    # t1 = t.time()
+    # print('\nFinished getInvariantBasisCoefficientsField in {:.4f} s'.format(t1 - t0))
     # Save tensor invariants related fields
     if saveFields:
         case.savePickleData(time, sij, fileNames = ('Sij_' + confinedFieldNameSub))
         case.savePickleData(time, rij, fileNames = ('Rij_' + confinedFieldNameSub))
         case.savePickleData(time, tb, fileNames = ('TB_' + confinedFieldNameSub))
         case.savePickleData(time, bij, fileNames = ('bij_' + confinedFieldNameSub))
-        case.savePickleData(time, g, fileNames = ('g_' + confinedFieldNameSub))
-        case.savePickleData(time, gRMSE, fileNames = ('g_RMSE_True_' + confinedFieldNameSub))
+        # case.savePickleData(time, g, fileNames = ('g_' + confinedFieldNameSub))
+        # case.savePickleData(time, gRMSE, fileNames = ('g_RMSE_True_' + confinedFieldNameSub))
 
 # Else if read invariants data from pickle
 else:
     invariants = case.readPickleData(time, fileNames = ('Sij_' + confinedFieldNameSub,
                                                         'Rij_' + confinedFieldNameSub,
                                                         'TB_' + confinedFieldNameSub,
-                                                        'bij_' + confinedFieldNameSub,
-                                                        'g_' + confinedFieldNameSub))
+                                                        'bij_' + confinedFieldNameSub))
     sij = invariants['Sij_' + confinedFieldNameSub]
     rij = invariants['Rij_' + confinedFieldNameSub]
     tb = invariants['TB_' + confinedFieldNameSub]
     bij = invariants['bij_' + confinedFieldNameSub]
-    g = invariants['g_' + confinedFieldNameSub]
+    # g = invariants['g_' + confinedFieldNameSub]
 
 
 """
 Calculate Feature Sets
 """
+# Feature set 1
+fs1 = getFeatureSet1(sij, rij)
+# If only feature set 1 used for ML input, then do train test data split here
+if fs == '1':
+    # FIXME: TB couldn't be split here
+    # xTrain, xTest, yTrain, yTest, _ = splitTrainTestData(x = fs1, y = bij, randState = seed, scalerScheme = None)
+    if saveFields:
+        case.savePickleData(time, fs1, fileNames = ('FS' + fs + '_' + confinedFieldNameSub))
+        # case.savePickleData(time, yTrain, fileNames=('yTrain_' + confinedFieldNameSub))
+        # case.savePickleData(time, xTrain, fileNames = ('FS' + fs + '_Train_' + confinedFieldNameSub))
+        # case.savePickleData(time, xTest, fileNames = ('FS' + fs + '_Test_' + confinedFieldNameSub))
+        # case.savePickleData(time, yTrain, fileNames = ('yTrain_' + confinedFieldNameSub))
+        # case.savePickleData(time, yTest, fileNames = ('yTest_' + confinedFieldNameSub))
+
+
+
 
 
 

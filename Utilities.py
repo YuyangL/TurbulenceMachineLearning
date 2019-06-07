@@ -1,11 +1,10 @@
-from numba import njit, jit
+from numba import njit, jit, prange
 import numpy as np
 import functools, time
 
 def configurePlotSettings(lineCnt = 2, useTex = True, style = 'default', fontSize = 16, cmap = 'viridis', linewidth =
 1):
     import matplotlib.pyplot as plt
-    import numpy as np
     import matplotlib as mpl
     from warnings import warn
 
@@ -36,8 +35,6 @@ def configurePlotSettings(lineCnt = 2, useTex = True, style = 'default', fontSiz
 
 #---------------------------------------------------------------
 def convertDataTo2D(list):
-    import numpy as np
-
     array = np.asarray(list)
     try:
         # If array is already 2D, skip this function
@@ -171,8 +168,9 @@ def timer(func):
 
 
 @timer
-@jit(parallel = True)
-def sampleData(listData, sampleSize, replace = False):
+# TODO: prange fails here
+# @jit(parallel = True)
+def sampleData(listData, sampleSize, replace=False):
     # Ensure list
     if isinstance(listData, np.ndarray):
         listData = [listData]
@@ -182,11 +180,67 @@ def sampleData(listData, sampleSize, replace = False):
     # Get indices of the samples
     sampleIdx = np.random.choice(np.arange(len(listData[0])), sampleSize, replace = replace)
     # Go through all provided data
-    for i in prange(len(listData)):
-        listData[i] = listData[i][sampleIdx]
+    listDataSamp = listData
+    for i in range(len(listData)):
+        listDataSamp[i] = listData[i][sampleIdx]
 
     print('\nData sampled to {0} with {1} replacement'.format(sampleSize, replace))
-    return listData
+    return listDataSamp
+
+
+def nDto2D_TensorField(nD_Tensor):
+    """
+    Convert a tensor field array of n (n >2) D to 2D as nPoint x nComponent,
+    assuming the given tensor field has a structure of {mesh} x {tensor component}
+    :param nD_Tensor:
+    :type nD_Tensor:
+    :return:
+    :rtype:
+    """
+    # Ensure Numpy array
+    data = np.array(nD_Tensor)
+    # If data is 5D, then assume 3D tensor field, nX x nY x nZ x 3 x 3
+    if len(data.shape) == 5:
+        data = data.reshape((data.shape[0]*data.shape[1]*data.shape[2], 9))
+    # Else if data is 4D
+    elif len(data.shape) == 4:
+        # If last D has 9/6 (symmetric tensor) component, then assume 3D tensor field, nX x nY x nZ x nComponent
+        if data.shape[3] in (6, 9):
+            data = data.reshape((data.shape[0]*data.shape[1]*data.shape[2], data.shape[3]))
+        # Else if 3 in 4th D
+        elif data.shape[3] == 3:
+            # If 3 in 3rd D, then assume 2D tensor field, nX x nY x 3 x 3
+            if data.shape[2] == 3:
+                data = data.reshape((data.shape[0]*data.shape[1], 9))
+            # Otherwise assume 3D vector field, nX x nY x nZ x 3
+            else:
+                data = data.reshape((data.shape[0]*data.shape[1]*data.shape[2], 3))
+
+    # Else if 3D data
+    elif len(data.shape) == 3:
+        # If 3rd D is 6/9, then assume 2D (symmetric) tensor field, nX x nY x nComponent
+        if data.shape[2] in (6, 9):
+            data = data.reshape((data.shape[0]*data.shape[1], data.shape[2]))
+        # Else if 3rd D is 3
+        elif data.shape[2] == 3:
+            # If 2nd D is 3, then assume 1D tensor, nPoint x 3 x 3
+            if data.shape[1] == 3:
+                data = data.reshape((data.shape[0], 9))
+            # Otherwise assume 2D vector field, nX x nY x 3
+            else:
+                data = data.reshape((data.shape[0]*data.shape[1], 3))
+
+    return data
+
+
+
+
+
+
+
+
+
+
 
 
 
