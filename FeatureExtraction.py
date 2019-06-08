@@ -1,15 +1,19 @@
 """
 Extract Features from Provided Invariants
 """
+import sys
+# See https://github.com/YuyangL/SOWFA-PostProcess
+sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 import numpy as np
+from PostProcess_Tensor import convertTensorTo2D
 from Utilities import nDto2D_TensorField, timer
 from numba import jit, njit, prange
 
 @timer
-@jit(parallel = True, fastmath = True)
+@jit(parallel=True, fastmath=True)
 def getFeatureSet1(sij, rij):
     # Ensure tensor field is nPoint x nComponent (9 in this case)
-    sij, rij = nDto2D_TensorField(sij), nDto2D_TensorField(rij)
+    sij, rij = convertTensorTo2D(sij), convertTensorTo2D(rij)
     # Reshape Sij and Rij to nPoint x 3 x 3 for matrix calculations later
     sij, rij = sij.reshape((sij.shape[0], 3, 3)), rij.reshape((sij.shape[0], 3, 3))
     # Initialize feature set invariants as nPoint x 6 features

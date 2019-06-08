@@ -5,9 +5,102 @@ from warnings import warn
 from Utilities import timer
 
 @timer
-def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), minSampleSplits = (2,), criterion = ('mse',),
-                                scalerScheme = 'robust', splitScheme = 'RF', verbose = 1,
-                                customOobScore = None, randState = None):
+def setupDecisionTreeGridSearchCV(max_features=(1.,), min_samples_split=(2,), min_samples_leaf=(1,),
+                                  cv=5, presort=True, split_finder="brute",
+                                  tb_verbose=False, split_verbose=False, scaler='robust', rand_state=None, gscv_verbose=1):
+    """
+    Setup for (Tensor Basis) Decision Tree Regressor Grid Search Cross Validation.
+    If tensor basis tb is provided to self.fit(), then tensor basis criterion is enabled. Otherwise, Decision Tree Regressor is a default model.
+    If split_finder is given as "brent" or "1000",
+    then Brent optimization or a total split limit of 1000 per node is implemented to find the best split at a node.
+    If scaler is "robust" or "standard",
+    then RobustScaler or StandardScaler is implemented in a pipeline, before (Tensor Basis) Decision Tree Regressor.
+    The hyper-parameters to tune are max_features, min_samples_split, and min_samples_leaf.
+
+    :param max_features: Maximum number of features to consider for the best split.
+    If a fraction is given, then the fraction of all features are considered.
+    :type max_features: tuple/list(int / float 0-1), or int / float 0-1
+    :param min_samples_split: Minimum number of samples to consider for a split.
+    If a fraction is given, then the fraction of all samples are considered.
+    :type min_samples_split: tuple/list(int / float 0-1) or int / float 0-1
+    :param min_samples_leaf: Minimum number of samples for the final leaf node.
+    If a fraction is given, then the fraction of all samples are considered.
+    :type min_samples_leaf: tuple/list(int / float 0-1) or int / float 0-1
+    :param cv: Number of cross-validation folds.
+    :type cv: int, optional (default=5)
+    :param presort: Whether to presort the training data before start building the tree.
+    :type presort: bool, optional (default=True)
+    :param split_finder: Best split finding scheme.
+    If "brent", then use Brent optimization. Should only be used with tensor basis criterion.
+    If "1000", then the maximum number of split per node is limited to 1000. Should only be used with tensor basis criterion.
+    If "brute", then all possible splits are considered each node.
+    :type split_finder: "brute" or "brent" or "1000", optional (default="brute")
+    :param tb_verbose: Whether to verbose tensor basis criterion related executions.
+    :type tb_verbose: bool, optional (default=False)
+    :param split_verbose: Whether to verbose best split finding scheme.
+    :type split_verbose: bool, optional (default=False)
+    :param scaler: Training data scaler scheme.
+    If "robust", then RobustScaler is used as data pre-processing.
+    If "standard", then StandardScaler is used as data pre-processing.
+    If None, then no data scaler is used.
+    :type scaler: "robust" or "standard" or None, optional (default="robust")
+    :param rand_state: Whether use random state to reproduce the same fitting procedure.
+    :type rand_state: int or RandomState instance or None, optional (default=None)
+    :param gscv_verbose: Whether to verbose grid search cross-validation process.
+    If 0, then verbose is off.
+    If > 1, then verbose is on.
+    :type gscv_verbose: int, optional (default=1)
+
+    :return: (Tensor Basis) Decision Tree Regressor (pipeline) ready for grid search cross-validation,
+    and hyper-parameters dictionary for tuning.
+    :rtype: (GridSearchCV instance, dict)
+    """
+    from sklearn.tree import DecisionTreeRegressor
+    from sklearn.model_selection import GridSearchCV
+
+    # Ensure hyper-parameters in a sequence
+    if isinstance(max_features, (int, float)): max_features = (max_features,)
+    if isinstance(min_samples_split, (int, float)): min_samples_split = (min_samples_split,)
+    if isinstance(min_samples_leaf, (int, float)): min_samples_leaf = (min_samples_leaf,)
+
+
+    # Pipeline to queue data scaling and estimator together
+    if scaler == 'standard':
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort))])
+    elif scaler == 'robust':
+        pipeline = Pipeline([
+            ('scaler', RobustScaler()),
+            ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort))])
+    else:
+        pipeline = DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort)
+
+    # Append hyper-parameters to a dict
+    if scaler in ("robust", "standard"):
+        tune_params = dict(tree__max_features=max_features,
+                          tree__min_samples_split=min_samples_split,
+                          tree__min_samples_leaf=min_samples_leaf)
+    else:
+        tune_params = dict(max_features=max_features,
+                           min_samples_split=min_samples_split,
+                           min_samples_leaf=min_samples_leaf)
+
+    # Construct GSCV for DT
+    tree_gscv = GridSearchCV(pipeline,
+                            cv=cv,
+                            param_grid=tune_params,
+                            n_jobs=-1,
+                            error_score='raise', verbose=gscv_verbose, scoring=None)
+
+    print('\nSetup [Decision Tree] Grid Search using {0}-fold Cross-Validation and [{1}] scaler:'.format(cv, scaler))
+    return tree_gscv, tune_params
+
+
+@timer
+def setupRandomForestGridSearch(nEstimator = 100, max_features = (1/3.,), min_samples_split = (2,), criterion = ('mse',),
+                                scaler = 'robust', splitScheme = 'RF', verbose = 1,
+                                customOobScore = None, rand_state = None):
     from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
     if customOobScore in ('errVar', 'monotonic'):
         warn(
@@ -30,7 +123,7 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
 
     # Pipeline to queue data scaling and estimator together
     if splitScheme == 'RF':
-        if scalerScheme == 'standard':
+        if scaler == 'standard':
             # If customScore is either 'errVar' or 'monotonic', then sklearn/ensemble/forest.py should've already
             # modified by [
             # yluan] with the
@@ -43,7 +136,7 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                         ('scaler', StandardScaler()),
                         (splitScheme, RandomForestRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                             oob_score =
-                                                            True, random_state = randState, customOobScore = customOobScore))])
+                                                            True, random_state = rand_state, customOobScore = customOobScore))])
                 except TypeError:
                     warn('\n[customOobScore] failed! [sklearn/ensemble/forest.py] has not been updated from ['
                          'Files_CustomOobScore]. '
@@ -53,7 +146,7 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                         ('scaler', StandardScaler()),
                         (splitScheme,
                          RandomForestRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose, oob_score =
-                         True, random_state = randState))])
+                         True, random_state = rand_state))])
 
             # Else if customScore not 'errVar' nor 'monotonic', don't care whether forest.py has been modified and
             # don't
@@ -65,12 +158,12 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                     ('scaler', StandardScaler()),
                     (splitScheme,
                      RandomForestRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose, oob_score =
-                     True, random_state = randState))])
+                     True, random_state = rand_state))])
 
 
         else:
-            if scalerScheme != 'robust':
-                warn('\nInvalid [scalerScheme]! Using default "robust" scaler...\n', stacklevel = 2)
+            if scaler != 'robust':
+                warn('\nInvalid [scaler]! Using default "robust" scaler...\n', stacklevel = 2)
 
             # The same with robust scaler
             if customOobScore:
@@ -78,7 +171,7 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                     pipeline = Pipeline([
                         ('scaler', RobustScaler()),
                         (splitScheme, RandomForestRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
-                                                            oob_score = True, random_state = randState,
+                                                            oob_score = True, random_state = rand_state,
                                                             customOobScore = customOobScore))])
                 except TypeError:
                     warn('\n[customOobScore] failed! [sklearn/ensemble/forest.py] has not been updated from ['
@@ -88,25 +181,25 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                     pipeline = Pipeline([
                         ('scaler', RobustScaler()),
                         (splitScheme, RandomForestRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
-                                                            oob_score = True, random_state = randState))])
+                                                            oob_score = True, random_state = rand_state))])
 
             else:
                 pipeline = Pipeline([
                     ('scaler', RobustScaler()),
                     (splitScheme, RandomForestRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
-                                                        oob_score = True, random_state = randState))])
+                                                        oob_score = True, random_state = rand_state))])
         # End of if standard or robust scaler
 
     # Else if splitScheme is extremeRF
     else:
-        if scalerScheme == 'standard':
+        if scaler == 'standard':
             if customOobScore in ('errVar', 'monotonic'):
                 try:
                     pipeline = Pipeline([
                         ('scaler', StandardScaler()),
                         (splitScheme, ExtraTreesRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                           bootstrap = True, oob_score =
-                                                          True, random_state = randState, customOobScore = customOobScore))])
+                                                          True, random_state = rand_state, customOobScore = customOobScore))])
                 except TypeError:
                     warn('\n[customOobScore] failed! [sklearn/ensemble/forest.py] has not been updated from ['
                          'Files_CustomOobScore]. '
@@ -116,19 +209,19 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                         ('scaler', StandardScaler()),
                         (splitScheme, ExtraTreesRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                           bootstrap = True, oob_score =
-                                                          True, random_state = randState))])
+                                                          True, random_state = rand_state))])
 
             else:
                 pipeline = Pipeline([
                     ('scaler', StandardScaler()),
                     (splitScheme, ExtraTreesRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                       bootstrap = True, oob_score =
-                                                      True, random_state = randState))])
+                                                      True, random_state = rand_state))])
 
 
         else:
-            if scalerScheme != 'robust':
-                warn('\nInvalid [scalerScheme]! Using default [robust] scaler...\n', stacklevel = 2)
+            if scaler != 'robust':
+                warn('\nInvalid [scaler]! Using default [robust] scaler...\n', stacklevel = 2)
 
             if customOobScore in ('errVar', 'monotonic'):
                 try:
@@ -136,7 +229,7 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                         ('scaler', RobustScaler()),
                         (splitScheme, ExtraTreesRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                           bootstrap = True, oob_score =
-                                                          True, random_state = randState, customOobScore = customOobScore))])
+                                                          True, random_state = rand_state, customOobScore = customOobScore))])
                 except TypeError:
                     warn('\n[customOobScore] failed! [sklearn/ensemble/forest.py] has not been updated from ['
                          'Files_CustomOobScore]. '
@@ -146,24 +239,24 @@ def setupRandomForestGridSearch(nEstimator = 100, maxFeatPercents = (1/3.,), min
                         ('scaler', RobustScaler()),
                         (splitScheme, ExtraTreesRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                           bootstrap = True, oob_score =
-                                                          True, random_state = randState))])
+                                                          True, random_state = rand_state))])
 
             else:
                 pipeline = Pipeline([
                     ('scaler', RobustScaler()),
                     (splitScheme, ExtraTreesRegressor(n_estimators = nEstimator, n_jobs = -1, verbose = verbose,
                                                       bootstrap = True, oob_score =
-                                                      True, random_state = randState))])
+                                                      True, random_state = rand_state))])
         # End of if standard or robust scaler
     # End of if splitScheme
 
     if splitScheme == 'RF':
-        tuneParams = dict(RF__max_features = maxFeatPercents,
-                          RF__min_samples_split = minSampleSplits,
+        tuneParams = dict(RF__max_features = max_features,
+                          RF__min_samples_split = min_samples_split,
                           RF__criterion = criterion)
     else:
-        tuneParams = dict(extremeRF__max_features = maxFeatPercents,
-                          extremeRF__min_samples_split = minSampleSplits,
+        tuneParams = dict(extremeRF__max_features = max_features,
+                          extremeRF__min_samples_split = min_samples_split,
                           extremeRF__criterion = criterion)
 
     RF_GS = pipeline
