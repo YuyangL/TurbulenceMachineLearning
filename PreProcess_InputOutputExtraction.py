@@ -3,9 +3,8 @@ import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
-from PostProcess_AnisotropyTensor import evaluateInvariantBasisCoefficients
-from FeatureExtraction import getFeatureSet1, splitTrainTestData, inputOutlierDetection
-import time as t
+from Preprocess.FeatureExtraction import getFeatureSet1
+
 # For Python 2.7, use cpickle
 try:
     import cpickle as pickle

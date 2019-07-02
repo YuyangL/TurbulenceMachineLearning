@@ -2,7 +2,7 @@ import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
-from MachineLearningSetup import processEstimatorGridSearch, setupRandomForestGridSearch
+
 # For Python 2.7, use cpickle
 try:
     import cpickle as pickle

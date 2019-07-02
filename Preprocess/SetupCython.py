@@ -5,9 +5,8 @@ import numpy
 
 system = 'linux'  # 'windows', 'linux'
 
-# file_name = 'PostProcess_EnergySpectrum'
-# file_name = 'PostProcess_AnisotropyTensor'
-file_name = 'Tensor'
+# file_name = 'Tensor'
+file_name = 'Feature'
 
 """
 python3 SetupCython.py build_ext --inplace

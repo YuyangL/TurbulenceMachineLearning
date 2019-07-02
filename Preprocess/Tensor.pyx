@@ -7,53 +7,7 @@ import numpy as np
 cimport numpy as np
 from libc.stdio cimport printf
 from libc.math cimport sqrt
-from ..Utility import reverseOldGridShape
-
-cpdef tuple convertTensorTo2D(np.ndarray tensor, bint infer_stress=True):
-    """
-    Convert a tensor array from nD to 2D. The first (n - 1)D are always collapsed to 1 when infer_stress is disabled.
-    When infer_stress is enabled, if last 2D shape is (3, 3), the first (n - 2)D are collapsed to 1 and last 2D collapsed to 9.
-    If 5D tensor, assume non-stress shape (n_x, n_y, n_z, n_extra, n_features), and stress shape (n_x, n_y, n_z, 3, 3).
-    If 4D tensor, assume non-stress shape (n_x, n_y, n_z, n_features], and stress shape (n_x, n_y, 3, 3).
-    If 3D tensor, assume non-stress shape (n_x, n_y, n_features), and stress shape (n_points, 3, 3).
-
-    :param tensor: Tensor to convert to 2D
-    :type tensor: np.ndarray[grid x n_features]
-    :param infer_stress: Whether to infer if given tensor is stress. If True and if last 2D shape is (3, 3), then tensor is assumed stress.
-    :type infer_stress: bool, optional (default=True)
-
-    :return: 2D tensor of shape (n_points, n_features) and its original shape.
-    :rtype: (np.ndarray[n_points x n_features], tuple)
-    """
-    cdef tuple shape_old
-    cdef np.ndarray[np.float_t, ndim=2] tensor_2d
-
-    shape_old = np.shape(tensor)
-
-    if len(shape_old) == 5:
-        if infer_stress and shape_old[3:5] == (3, 3):
-            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1]*shape_old[2], 9))
-        else:
-            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1]*shape_old[2]*shape_old[3], shape_old[4]))
-
-    elif len(shape_old) == 4:
-        if infer_stress and shape_old[2:4] == (3, 3):
-            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1], 9))
-        else:
-            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1]*shape_old[2], shape_old[3]))
-
-    elif len(shape_old) == 3:
-        if infer_stress and shape_old[1:3] == (3, 3):
-            tensor_2d = tensor.reshape((shape_old[0], 9))
-        else:
-            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1], shape_old[2]))
-
-    else:
-        tensor_2d = tensor
-
-    print('\nTensor collapsed from shape ' + str(shape_old) + ' to ' + str(np.shape(tensor_2d)))
-    return tensor_2d, shape_old
-
+from Utility import collapseMeshGridFeatures, reverseOldGridShape
 
 cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropic=True, int realization_iter=0, bint to_old_grid_shape=True):
     """
@@ -87,8 +41,10 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
     cdef double progress
 
     print('\nProcessing Reynolds stress... ')
-    # Ensure stress tensor is 2D
-    stress_tensor, shape_old = convertTensorTo2D(stress_tensor)
+    # Ensure stress tensor is 2D, (n_points, 9 or 6)
+    # [DEPRECATED]
+    # stress_tensor, shape_old = convertTensorTo2D(stress_tensor)
+    stress_tensor, shape_old = collapseMeshGridFeatures(stress_tensor, matrix_shape=(3,3), collapse_matrix=True)
     # Original shape without last D which is 9, or last 2D which is 3 x 3, representing the grid shape
     if shape_old[:(len(shape_old) - 2)] == (3, 3):
         shape_old_grid = list(shape_old[:(len(shape_old) - 2)])
@@ -108,7 +64,7 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
             k = 0.5*(stress_tensor[:, 0] + stress_tensor[:, 4] + stress_tensor[:, 8])
 
         # Avoid FPE
-        k[k < 1e-8] = 1e-8
+        k[k < 1e-12] = 1e-12
 
         if stress_tensor.shape[1] == 6:
             # Convert Rij to bij
@@ -260,6 +216,7 @@ cpdef tuple getBarycentricMapData(np.ndarray eigval, bint optimize_cmap=True, do
 cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=2] labels):
     """
     From Ling et al. (2016), see https://github.com/tbnn/tbnn.
+    
     This function is specific to turbulence modeling.
     Given the anisotropy tensor, this function forces realizability
     by shifting values within acceptable ranges for Aii > -1/3 and 2|Aij| < Aii + Ajj + 2/3
@@ -273,16 +230,17 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
     :return: The predicted realizable anisotropy tensor.
     :type: np.ndarray[n_points, 9]
     """
-    cdef int numPoints, i, j
+    cdef int n_points, i, j
     cdef np.ndarray[np.float_t, ndim=2] A, evectors
     cdef np.ndarray[np.float_t] evalues
 
-    numPoints = labels.shape[0]
+    n_points = labels.shape[0]
     A = np.zeros((3, 3))
-    for i in range(numPoints):
+    for i in range(n_points):
         # Scales all on-diags to retain zero trace
         if np.min(labels[i, [0, 4, 8]]) < -1./3.:
             labels[i, [0, 4, 8]] *= -1./(3.*np.min(labels[i, [0, 4, 8]]))
+
         if 2.*np.abs(labels[i, 1]) > labels[i, 0] + labels[i, 4] + 2./3.:
             labels[i, 1] = (labels[i, 0] + labels[i, 4] + 2./3.)*.5*np.sign(labels[i, 1])
             labels[i, 3] = (labels[i, 0] + labels[i, 4] + 2./3.)*.5*np.sign(labels[i, 1])
@@ -309,6 +267,7 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
             A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
             for j in range(3):
                 labels[i, j] = A[j, j]
+
             labels[i, 1] = A[0, 1]
             labels[i, 5] = A[1, 2]
             labels[i, 2] = A[0, 2]
@@ -320,6 +279,7 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
             A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
             for j in range(3):
                 labels[i, j] = A[j, j]
+
             labels[i, 1] = A[0, 1]
             labels[i, 5] = A[1, 2]
             labels[i, 2] = A[0, 2]
@@ -328,3 +288,89 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
             labels[i, 6] = A[0, 2]
 
     return labels
+
+
+cdef np.ndarray[np.float_t, ndim=3] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=None):
+    """
+    Map a vector to the anti-symmetric tensor A by
+    A = -I x vector where I is the 2nd order identity matrix,
+    and scale with a scaler to non-dimensionalize it if provided.
+    
+    :param vec: The vector array to map to an anti-symmetric tensor.
+    :type vec: ndarray[n_points, vector size]
+    :param scaler: Scaler scalar or vector to non-dimensionalized and/or normalize the given vector. 
+    If None, then no scaling is applied.
+    :type scaler: ndarray[n_points] or ndarray[n_points, vector size] or None, optional (default=None)
+    
+    :return: (Non-dimensionalized and/or normalized) anti-symmetric tensor from given vector array (and scaler).
+    :rtype: ndarray[n_points, vector size, vector size]
+    """
+    cdef np.ndarray[np.float_t, ndim=3] asymm_tensor
+    cdef int i
+
+    # Antisymmetric tensor is n_points x vector size x vector size. E.g. grad(TKE) is n_points x 3 x 3
+    asymm_tensor = np.empty((vec.shape[0], vec.shape[1], vec.shape[1]))
+    # Go through every point and calculate the cross product: -I x vec, e.g. -I x grad(TKE)
+    for i in range(vec.shape[0]):
+        # Scale the vector so that it's dimensionless/normalized.
+        # E.g. grad(k) vector with sqrt(k)/epsilon scalar, or grad(p) vector with 1/(rho*|DU/Dt|) scalar
+        if scaler is not None:
+            vec[i] *= scaler[i]
+
+        asymm_tensor[i] = -np.cross(np.eye(3), vec[i])
+
+    print("\nVector mapped to an anti-asymmetric tensor of shape " + str(np.shape(asymm_tensor)))
+    return asymm_tensor
+
+
+
+
+# --------------------------------------------------------
+# [DEPRECATED] But Still Usable
+# --------------------------------------------------------
+cpdef tuple convertTensorTo2D(np.ndarray tensor, bint infer_stress=True):
+    """
+    [DEPRECATED] See Utility.collapseMeshGridFeatures().
+    
+    Convert a tensor array from nD to 2D. The first (n - 1)D are always collapsed to 1 when infer_stress is disabled.
+    When infer_stress is enabled, if last 2D shape is (3, 3), the first (n - 2)D are collapsed to 1 and last 2D collapsed to 9.
+    If 5D tensor, assume non-stress shape (n_x, n_y, n_z, n_extra, n_features), and stress shape (n_x, n_y, n_z, 3, 3).
+    If 4D tensor, assume non-stress shape (n_x, n_y, n_z, n_features], and stress shape (n_x, n_y, 3, 3).
+    If 3D tensor, assume non-stress shape (n_x, n_y, n_features), and stress shape (n_points, 3, 3).
+
+    :param tensor: Tensor to convert to 2D
+    :type tensor: np.ndarray[grid x n_features]
+    :param infer_stress: Whether to infer if given tensor is stress. If True and if last 2D shape is (3, 3), then tensor is assumed stress.
+    :type infer_stress: bool, optional (default=True)
+
+    :return: 2D tensor of shape (n_points, n_features) and its original shape.
+    :rtype: (np.ndarray[n_points x n_features], tuple)
+    """
+    cdef tuple shape_old
+    cdef np.ndarray[np.float_t, ndim=2] tensor_2d
+
+    shape_old = np.shape(tensor)
+
+    if len(shape_old) == 5:
+        if infer_stress and shape_old[3:5] == (3, 3):
+            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1]*shape_old[2], 9))
+        else:
+            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1]*shape_old[2]*shape_old[3], shape_old[4]))
+
+    elif len(shape_old) == 4:
+        if infer_stress and shape_old[2:4] == (3, 3):
+            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1], 9))
+        else:
+            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1]*shape_old[2], shape_old[3]))
+
+    elif len(shape_old) == 3:
+        if infer_stress and shape_old[1:3] == (3, 3):
+            tensor_2d = tensor.reshape((shape_old[0], 9))
+        else:
+            tensor_2d = tensor.reshape((shape_old[0]*shape_old[1], shape_old[2]))
+
+    else:
+        tensor_2d = tensor
+
+    print('\nTensor collapsed from shape ' + str(shape_old) + ' to ' + str(np.shape(tensor_2d)))
+    return tensor_2d, shape_old

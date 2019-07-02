@@ -94,8 +94,107 @@ cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t]
         else:
             val_mesh[:, :, i] = griddata(coor_known, val[:, i], coor_request, method=interp, fill_value=fill_val)
 
+    # In case provided value only has 1 feature, compress from shape (grid mesh, 1) to (grid mesh)
+    if n_features == 1:
+        if z is None:
+            val_mesh = val_mesh.reshape((val_mesh.shape[0], val_mesh.shape[1]))
+        else:
+            val_mesh = val_mesh.reshape((val_mesh.shape[0], val_mesh.shape[1], val_mesh.shape[2]))
+
     print('\nValues interpolated to mesh ' + str(np.shape(xmesh)))
     return xmesh, ymesh, zmesh, val_mesh
+
+
+cpdef tuple collapseMeshGridFeatures(np.ndarray meshgrid, bint infer_matrix_form=True, tuple matrix_shape=(3, 3), bint collapse_matrix=True):
+    """
+    Collapse a given value meshgrid of [grid shape x feature shape] to array of [n_points x feature shape] or [n_points x n_features].
+    At least the last D has to be feature(s).
+    When infer_matrix_form is disabled, 
+        If meshgrid >= 3D, the 1st (n - 1)D are always collapsed to 1, with last D (features) unchanged. 
+        Else, meshgrid is assumed (n_points, n_features) and the original meshgrid is returned.
+    When infer_matrix_form is enabled, 
+        if last len(matrix_shape)D shape is matrix_shape, the first (n - len(matrix_shape)D are collapsed to 1D, 
+            and if collapse_matrix is enabled, collapse the matrix shape to 1D too;
+        else if last len(matrix_shape)D shape is not matrix_shape, assume last D is features and collapse the 1st (n - 1)D to 1D.
+        
+    Typical examples:
+        Meshgrid is (nx, ny, nz, 3, 3). 
+            If infer_matrix_form and matrix_shape is (3, 3):
+                Array is (nx*ny*nz, 3*3) if collapse_matrix is True else (nx*ny*nz, 3, 3).
+            Else, array is (nx*ny*nz*3, 3).
+        Meshgrid is (n_points, 10, 3, 3).
+            If infer_matrix_form and matrix_shape is (10, 3, 3):
+                Array is (n_points, 10*3*3) if collapse_matrix else (n_points, 10, 3, 3).
+            Else, array is (n_points*10*3, 3).
+        Meshgrid is (nx, ny, n_features).
+            nz is assumed feature D instead of spatial D and array is (nx*ny, nz).
+            In case of (nx, ny, nz) 3D meshgrid, please use meshgrid.ravel(). 
+        Meshgrid is (n_points, n_features).
+            Nothing is done.
+
+    :param meshgrid: Meshgrid of multiple features to collapse. At least last D should be feature(s).
+    :type meshgrid: ndarray[grid_shape x feature shape]
+    :param infer_matrix_form: Whether to infer if given meshgrid has features in the form matrix of shape matrix_shape. 
+    If True and if last len(matrix_shape)D shape is matrix_shape, then grid shape of meshgrid excludes matrix_shape.
+    :type infer_matrix_form: bool, optional (default=True)
+    :param matrix_shape: If infer_matrix_form is True, shape of matrix to infer.
+    :type matrix_shape: tuple, optional (default=(3, 3))
+    :param collapse_matrix: If infer_matrix_form is True, whether to collapse matrix_shape to 1D, 
+    once such matrix_shape has found in given meshgrid.
+    :type collapse_matrix: bool, optional (default=True)
+
+    :return: Meshgrid of multiple features collapsed to either (n_points, n_features) or (n_points, feature shape); and its original shape.
+    :rtype: (ndarray[n_points x n_features] or ndarray[n_points x feature shape], tuple)
+    """
+    cdef tuple shape_old, shape_grid
+    cdef np.ndarray arr
+    cdef int matrix_nelem = 1
+    cdef int grid_nelem = 1
+    cdef int i
+    cdef list shape_new
+
+    shape_old = np.shape(meshgrid)
+    # Go throuhg each matrix D to calculate number of matrix elements
+    for i in range(len(matrix_shape)):
+        matrix_nelem *= matrix_shape[i]
+
+    # If infer_matrix_form
+    # and at least one more D than len(matrix_shape)
+    # and the last len(matrix_shape) D is given matrix_shape
+    if infer_matrix_form and \
+            len(shape_old) >= len(matrix_shape) + 1 and \
+            shape_old[(len(shape_old) - len(matrix_shape)):len(shape_old)] == matrix_shape:
+        shape_grid = shape_old[:(len(shape_old) - len(matrix_shape))]
+        # Go through each grid D and find out number of grid elements
+        for i in range(len(shape_grid)):
+            grid_nelem *= shape_grid[i]
+
+        # If collapse_matrix is True, then new array is collapsed both in grid D and matrix form D
+        if collapse_matrix:
+            arr = meshgrid.reshape((grid_nelem, matrix_nelem))
+        # Else only collapsed in grid D and keep matrix form
+        else:
+            shape_new = [grid_nelem] + list(matrix_shape)
+            arr = meshgrid.reshape(tuple(shape_new))
+
+    # Else if either infer_matrix_form is False
+    # and/or old array D <= len(matrix_shape) but >= 3
+    # and/or old array's last len(matrix_shape) D is not given matrix_shape.
+    # Note this inherently assumes the 3rd D is feature instead of z if given meshgrid is 3D
+    elif len(shape_old) >= 3:
+        shape_grid = shape_old[:(len(shape_old) - 1)]
+        # Go through each grid dimension
+        for i in range(len(shape_grid)):
+            grid_nelem *= shape_grid[i]
+
+        # New array is collapsed in grid and last D of original shape is kept
+        arr = meshgrid.reshape((grid_nelem, shape_old[len(shape_old) - 1]))
+    # Else if meshgrid is 2D, assume (n_points, n_features) and don't change anything
+    else:
+        arr = meshgrid
+
+    print('\nMesh grid of multiple features collapsed from shape ' + str(shape_old) + ' to ' + str(np.shape(arr)))
+    return arr, shape_old
 
 
 cpdef np.ndarray reverseOldGridShape(np.ndarray arr, tuple shape_old, bint infer_matrix_form=True, tuple matrix_shape=(3, 3)):

@@ -6,8 +6,11 @@ from Utilities import timer
 
 @timer
 def setupDecisionTreeGridSearchCV(max_features=(1.,), min_samples_split=(2,), min_samples_leaf=(1,),
+                                  alpha_g_fit=(0.,), alpha_g_split=(0.,),
                                   cv=5, presort=True, split_finder="brute",
-                                  tb_verbose=False, split_verbose=False, scaler='robust', rand_state=None, gscv_verbose=1):
+                                  tb_verbose=False, split_verbose=False, scaler='robust', rand_state=None, gscv_verbose=1,
+                                  max_depth=None,
+                                  g_cap=None):
     """
     Setup for (Tensor Basis) Decision Tree Regressor Grid Search Cross Validation.
     If tensor basis tb is provided to self.fit(), then tensor basis criterion is enabled. Otherwise, Decision Tree Regressor is a default model.
@@ -62,29 +65,39 @@ def setupDecisionTreeGridSearchCV(max_features=(1.,), min_samples_split=(2,), mi
     if isinstance(max_features, (int, float)): max_features = (max_features,)
     if isinstance(min_samples_split, (int, float)): min_samples_split = (min_samples_split,)
     if isinstance(min_samples_leaf, (int, float)): min_samples_leaf = (min_samples_leaf,)
-
+    if isinstance(alpha_g_fit, (int, float)): alpha_g_fit = (alpha_g_fit,)
+    if isinstance(alpha_g_split, (int, float)): alpha_g_split = (alpha_g_split,)
 
     # Pipeline to queue data scaling and estimator together
     if scaler == 'standard':
         pipeline = Pipeline([
             ('scaler', StandardScaler()),
-            ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort))])
+            ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort,
+                                           max_depth=max_depth))])
     elif scaler == 'robust':
         pipeline = Pipeline([
             ('scaler', RobustScaler()),
-            ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort))])
+            ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort,
+                                           max_depth=max_depth,
+                                           g_cap=g_cap))])
     else:
-        pipeline = DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort)
+        pipeline = DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort,
+                                         max_depth=max_depth,
+                                         g_cap=g_cap)
 
-    # Append hyper-parameters to a dict
+    # Append hyper-parameters to a dict, depending on pipeline or not
     if scaler in ("robust", "standard"):
         tune_params = dict(tree__max_features=max_features,
-                          tree__min_samples_split=min_samples_split,
-                          tree__min_samples_leaf=min_samples_leaf)
+                           tree__min_samples_split=min_samples_split,
+                           tree__min_samples_leaf=min_samples_leaf,
+                           tree__alpha_g_fit=alpha_g_fit,
+                           tree__alpha_g_split=alpha_g_split)
     else:
         tune_params = dict(max_features=max_features,
                            min_samples_split=min_samples_split,
-                           min_samples_leaf=min_samples_leaf)
+                           min_samples_leaf=min_samples_leaf,
+                           alpha_g_fit=alpha_g_fit,
+                           alpha_g_split=alpha_g_split)
 
     # Construct GSCV for DT
     tree_gscv = GridSearchCV(pipeline,
