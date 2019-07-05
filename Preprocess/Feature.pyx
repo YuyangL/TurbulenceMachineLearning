@@ -8,6 +8,7 @@ cimport numpy as np
 from libc.stdio cimport printf
 from warnings import warn
 from Tensor cimport _mapVectorToAntisymmetricTensor
+from Tensor import contractSymmetricTensor
 from Utility import collapseMeshGridFeatures
 
 
@@ -75,9 +76,11 @@ cpdef tuple getInvariantFeatureSet(np.ndarray sij, np.ndarray rij,
     cdef int i
     cdef tuple labels
 
-    # n_samples x 3 x 3
-    sij, _ = collapseMeshGridFeatures(sij, collapse_matrix=False)
-    rij, _ = collapseMeshGridFeatures(rij, collapse_matrix=False)
+    # n_samples x 6
+    sij, _ = collapseMeshGridFeatures(sij, collapse_matrix=True)
+    if sij.shape[1] == 9: sij = contractSymmetricTensor(sij)
+    # n_samples x 9
+    rij, _ = collapseMeshGridFeatures(rij, collapse_matrix=True)
     # Warn if non-dimensionalization couldn't be done due to lack of scaler inputs for TKE and/or p
     if grad_k is not None:
         grad_k, _ = collapseMeshGridFeatures(grad_k, infer_matrix_form=False)
@@ -122,7 +125,7 @@ cpdef tuple getInvariantFeatureSet(np.ndarray sij, np.ndarray rij,
 # -----------------------------------------------------
 # Supporting Functions, Not Intended to Be Called From Python
 # -----------------------------------------------------
-cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=3] sij, np.ndarray[np.float_t, ndim=3] rij,
+cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=2] sij, np.ndarray[np.float_t, ndim=2] rij,
                                                 np.ndarray grad1=None, np.ndarray grad2=None, np.ndarray grad1_scaler=None, np.ndarray grad2_scaler=None):
     """
     Calculate invariant features for samples, given at least non-dimensionalized strain rate and rotation rate tensor Sij, Rij.
@@ -164,12 +167,15 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=3] sij, np.ndarra
     cdef int milestone = 10
     cdef unsigned int i, j, n_inv, n_grad
     cdef double progress
+    cdef list ij_6to9 = [0, 1, 2, 1, 3, 4, 2, 4, 5]
+    cdef list ij_uniq = [0, 1, 2, 4, 5, 8]
+    cdef np.ndarray[np.float_t, ndim=2] sij_i, rij_i, asymm_tensor1_i, asymm_tensor2_i
     cdef np.ndarray[np.float_t, ndim=2] inv_set, sijsij, rijrij, rijsij, rijsijsij, sijrijsijsij
     cdef np.ndarray[np.float_t, ndim=2] a1sij, rija1, a1sijsij, a1rijrij, sija1sijsij, a2sij, rija2, a2sijsij, a2rijrij, sija2sijsij
     cdef np.ndarray[np.float_t, ndim=2] a, asij, rija, asijsij, arijrij, sijasijsij
 
     # First map given scalar gradient to anti-symmetric tensor,
-    # with A_scalar = [-I x grad(scalar)]*scaler. Shape (n_samples, 3, 3)
+    # with A_scalar = [-I x grad(scalar)]*scaler. Shape (n_samples, 9)
     if grad1 is not None:
         asymm_tensor1 = _mapVectorToAntisymmetricTensor(grad1, grad1_scaler)
         
@@ -202,52 +208,56 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=3] sij, np.ndarra
     inv_set = np.empty((sij.shape[0], n_inv))
     # Go through every sample and calculate invariants
     for i in range(sij.shape[0]):
+        # Recall Sij has 6 unique components, expand it to 9
+        sij_i = sij[i, ij_6to9].reshape((3, 3))
+        rij_i = rij[i].reshape((3, 3))
+        asymm_tensor1_i, asymm_tensor2_i = asymm_tensor1[i].reshape((3, 3)), asymm_tensor2[i].reshape((3, 3))
         # Common shortcuts
-        sijsij = sij[i] @ sij[i]
-        rijrij = rij[i] @ rij[i]
-        rijsij = rij[i] @ sij[i]
-        rijsijsij = rij[i] @ sijsij
-        sijrijsijsij = sij[i] @ rijsijsij
+        sijsij = sij_i @ sij_i
+        rijrij = rij_i @ rij_i
+        rijsij = rij_i @ sij_i
+        rijsijsij = rij_i @ sijsij
+        sijrijsijsij = sij_i @ rijsijsij
         # Extra shortcuts if at least one of grad1/2 is provided
         if grad1 is not None:
-            a1sij = asymm_tensor1[i] @ sij[i]
-            rija1 = rij[i] @ asymm_tensor1[i]
-            a1sijsij = asymm_tensor1[i] @ sijsij
-            a1rijrij = asymm_tensor1[i] @ rijrij
-            sija1sijsij = sij[i] @ a1sijsij
+            a1sij = asymm_tensor1_i @ sij_i
+            rija1 = rij_i @ asymm_tensor1_i
+            a1sijsij = asymm_tensor1_i @ sijsij
+            a1rijrij = asymm_tensor1_i @ rijrij
+            sija1sijsij = sij_i @ a1sijsij
         
         if grad2 is not None:
-            a2sij = asymm_tensor2[i] @ sij[i]
-            rija2 = rij[i] @ asymm_tensor2[i]
-            a2sijsij = asymm_tensor2[i] @ sijsij
-            a2rijrij = asymm_tensor2[i] @ rijrij
-            sija2sijsij = sij[i] @ a2sijsij
+            a2sij = asymm_tensor2_i @ sij_i
+            rija2 = rij_i @ asymm_tensor2_i
+            a2sijsij = asymm_tensor2_i @ sijsij
+            a2rijrij = asymm_tensor2_i @ rijrij
+            sija2sijsij = sij_i @ a2sijsij
 
         # Invariant features involving only Sij and Rij, 6 in total
         # S^2
         inv_set[i, 0] = np.trace(sijsij)
         # S^3
-        inv_set[i, 1] = np.trace(sij[i] @ sijsij)
+        inv_set[i, 1] = np.trace(sij_i @ sijsij)
         # R^2
         inv_set[i, 2] = np.trace(rijrij)
         # R^2*S
-        inv_set[i, 3] = np.trace(rij[i] @ rijsij)
+        inv_set[i, 3] = np.trace(rij_i @ rijsij)
         # R^2*S^2
-        inv_set[i, 4] = np.trace(rij[i] @ rijsijsij)
+        inv_set[i, 4] = np.trace(rij_i @ rijsijsij)
         # R^2*S*R*S^2
-        inv_set[i, 5] = np.trace(rij[i] @ (rij[i] @ sijrijsijsij))
+        inv_set[i, 5] = np.trace(rij_i @ (rij_i @ sijrijsijsij))
         # For each sample, go through number of gradients, either 1 or 2.
         # If n_grad = 1 or 2, then one or both of grad1 and grad2 will be included
         for j in range(n_grad):
             # If only grad1 is provided
             if grad2 is None:
-                a = asymm_tensor1[i]
+                a = asymm_tensor1_i
                 asij, rija = a1sij, rija1
                 asijsij, arijrij = a1sijsij, a1rijrij
                 sijasijsij = sija1sijsij
             # Else if only grad 2 is provided
             elif grad1 is None:
-                a = asymm_tensor2[i]
+                a = asymm_tensor2_i
                 asij, rija = a2sij, rija2
                 asijsij, arijrij = a2sijsij, a2rijrij
                 sijasijsij = sija2sijsij
@@ -255,12 +265,12 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=3] sij, np.ndarra
             else:
                 # Then go through grad1 then grad2
                 if j == 0:
-                    a = asymm_tensor1[i]
+                    a = asymm_tensor1_i
                     asij, rija = a1sij, rija1
                     asijsij, arijrij = a1sijsij, a1rijrij
                     sijasijsij = sija1sijsij
                 else:
-                    a = asymm_tensor2[i]
+                    a = asymm_tensor2_i
                     asij, rija = a2sij, rija2
                     asijsij, arijrij = a2sijsij, a2rijrij
                     sijasijsij = sija2sijsij
@@ -277,54 +287,54 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=3] sij, np.ndarra
             # R*A
             inv_set[i, 10 + j*13] = np.trace(rija)
             # R*A*S
-            inv_set[i, 11 + j*13] = np.trace(rij[i] @ asij)
+            inv_set[i, 11 + j*13] = np.trace(rij_i @ asij)
             # R*A*S^2
-            inv_set[i, 12 + j*13] = np.trace(rij[i] @ asijsij)
+            inv_set[i, 12 + j*13] = np.trace(rij_i @ asijsij)
             # R^2*A*S
-            inv_set[i, 13 + j*13] = np.trace(rij[i] @ (rij[i] @ asij))
+            inv_set[i, 13 + j*13] = np.trace(rij_i @ (rij_i @ asij))
             # A^2*R*S (cyclic-permutation of anti-symmetric tensor labels of feature 13)
             inv_set[i, 14 + j*13] = np.trace(a @ (a @ rijsij))
             # R^2*A*S^2
-            inv_set[i, 15 + j*13] = np.trace(rij[i] @ (rij[i] @ asijsij))
+            inv_set[i, 15 + j*13] = np.trace(rij_i @ (rij_i @ asijsij))
             # A^2*R*S^2 (cyclic-permutation of anti-symmetric tensor labels of feature 15)
             inv_set[i, 16 + j*13] = np.trace(a @ (a @ rijsijsij))
             # R^2*S*A*S^2
-            inv_set[i, 17 + j*13] = np.trace(rij[i] @ (rij[i] @ sijasijsij))
+            inv_set[i, 17 + j*13] = np.trace(rij_i @ (rij_i @ sijasijsij))
             # A^2*S*R*S^2 (cyclic-permutation of anti-symmetric tensor labels of feature 17)
             inv_set[i, 18 + j*13] = np.trace(a @ (a @ sijrijsijsij))
 
         # If both grad1 and grad2 provided, then calculate their interaction invariant features, 15 in total
         if grad1 is not None and grad2 is not None:
             # A1*A2
-            inv_set[i, 32] = np.trace(asymm_tensor1[i] @ asymm_tensor2[i])
+            inv_set[i, 32] = np.trace(asymm_tensor1_i @ asymm_tensor2_i)
             # A1*A2*S
-            inv_set[i, 33] = np.trace(asymm_tensor1[i] @ a2sij)
+            inv_set[i, 33] = np.trace(asymm_tensor1_i @ a2sij)
             # A1*A2*S^2
-            inv_set[i, 34] = np.trace(asymm_tensor1[i] @ a2sijsij)
+            inv_set[i, 34] = np.trace(asymm_tensor1_i @ a2sijsij)
             # A1^2*A2*S
-            inv_set[i, 35] = np.trace(asymm_tensor1[i] @ (asymm_tensor1[i] @ a2sij))
+            inv_set[i, 35] = np.trace(asymm_tensor1_i @ (asymm_tensor1_i @ a2sij))
             # A2^2*A1*S (cyclic-permutation of anti-symmetric tensor labels of feature 35)
-            inv_set[i, 36] = np.trace(asymm_tensor2[i] @ (asymm_tensor2[i] @ a1sij))
+            inv_set[i, 36] = np.trace(asymm_tensor2_i @ (asymm_tensor2_i @ a1sij))
             # A1^2*A2*S^2
-            inv_set[i, 37] = np.trace(asymm_tensor1[i] @ (asymm_tensor1[i] @ a2sijsij))
+            inv_set[i, 37] = np.trace(asymm_tensor1_i @ (asymm_tensor1_i @ a2sijsij))
             # A2^2*A1*S^2 (cyclic-permutation of anti-symmetric tensor labels of feature 37)
-            inv_set[i, 38] = np.trace(asymm_tensor2[i] @ (asymm_tensor2[i] @ a1sijsij))
+            inv_set[i, 38] = np.trace(asymm_tensor2_i @ (asymm_tensor2_i @ a1sijsij))
             # A1^2*S*A2*S^2
-            inv_set[i, 39] = np.trace(asymm_tensor1[i] @ (asymm_tensor1[i] @ sija2sijsij))
+            inv_set[i, 39] = np.trace(asymm_tensor1_i @ (asymm_tensor1_i @ sija2sijsij))
             # A2^2*S*A1*S^2 (cyclic-permutation of anti-symmetric tensor labels of feature 39)
-            inv_set[i, 40] = np.trace(asymm_tensor2[i] @ (asymm_tensor2[i] @ sija1sijsij))
+            inv_set[i, 40] = np.trace(asymm_tensor2_i @ (asymm_tensor2_i @ sija1sijsij))
             # R*A1*A2
-            inv_set[i, 41] = np.trace(rij[i] @ (asymm_tensor1[i] @ asymm_tensor2[i]))
+            inv_set[i, 41] = np.trace(rij_i @ (asymm_tensor1_i @ asymm_tensor2_i))
             # R*A1*A2*S
-            inv_set[i, 42] = np.trace(rij[i] @ (asymm_tensor1[i] @ a2sij))
+            inv_set[i, 42] = np.trace(rij_i @ (asymm_tensor1_i @ a2sij))
             # R*A2*A1*S
-            inv_set[i, 43] = np.trace(rij[i] @ (asymm_tensor2[i] @ a1sij))
+            inv_set[i, 43] = np.trace(rij_i @ (asymm_tensor2_i @ a1sij))
             # R*A1*A2*S^2
-            inv_set[i, 44] = np.trace(rij[i] @ (asymm_tensor1[i] @ a2sijsij))
+            inv_set[i, 44] = np.trace(rij_i @ (asymm_tensor1_i @ a2sijsij))
             # R*A2*A1*S^2
-            inv_set[i, 45] = np.trace(rij[i] @ (asymm_tensor2[i] @ a1sijsij))
+            inv_set[i, 45] = np.trace(rij_i @ (asymm_tensor2_i @ a1sijsij))
             # R*A1*S*A2*S^2
-            inv_set[i, 46] = np.trace(rij[i] @ (asymm_tensor1[i] @ sija2sijsij))
+            inv_set[i, 46] = np.trace(rij_i @ (asymm_tensor1_i @ sija2sijsij))
 
         # Gauge progress
         progress = float(i)/(sij.shape[0] + 1)*100.

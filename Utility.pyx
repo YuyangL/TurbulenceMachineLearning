@@ -127,7 +127,7 @@ cpdef tuple collapseMeshGridFeatures(np.ndarray meshgrid, bint infer_matrix_form
                 Array is (n_points, 10*3*3) if collapse_matrix else (n_points, 10, 3, 3).
             Else, array is (n_points*10*3, 3).
         Meshgrid is (nx, ny, n_features).
-            nz is assumed feature D instead of spatial D and array is (nx*ny, nz).
+            nz is assumed feature D instead of spatial D and array is (nx*ny, n_features).
             In case of (nx, ny, nz) 3D meshgrid, please use meshgrid.ravel(). 
         Meshgrid is (n_points, n_features).
             Nothing is done.

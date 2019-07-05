@@ -7,6 +7,10 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
 
 cpdef tuple getBarycentricMapData(np.ndarray eigval, bint optimize_cmap=*, double c_offset=*, double c_exp=*, bint to_old_grid_shape=*)
 
+cpdef np.ndarray expandSymmetricTensor(np.ndarray tensor)
+
+cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor)
+
 
 # -----------------------------------------------------
 # Supporting Functions, Not Intended to Be Called From Python

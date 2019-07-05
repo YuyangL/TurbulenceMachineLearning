@@ -10,7 +10,8 @@ def setupDecisionTreeGridSearchCV(max_features=(1.,), min_samples_split=(2,), mi
                                   cv=5, presort=True, split_finder="brute",
                                   tb_verbose=False, split_verbose=False, scaler='robust', rand_state=None, gscv_verbose=1,
                                   max_depth=None,
-                                  g_cap=None):
+                                  g_cap=None,
+                                  realize_iter=0):
     """
     Setup for (Tensor Basis) Decision Tree Regressor Grid Search Cross Validation.
     If tensor basis tb is provided to self.fit(), then tensor basis criterion is enabled. Otherwise, Decision Tree Regressor is a default model.
@@ -73,17 +74,21 @@ def setupDecisionTreeGridSearchCV(max_features=(1.,), min_samples_split=(2,), mi
         pipeline = Pipeline([
             ('scaler', StandardScaler()),
             ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort,
-                                           max_depth=max_depth))])
+                                           max_depth=max_depth,
+                                           g_cap=g_cap,
+                                           realize_iter=realize_iter))])
     elif scaler == 'robust':
         pipeline = Pipeline([
             ('scaler', RobustScaler()),
             ('tree', DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort,
                                            max_depth=max_depth,
-                                           g_cap=g_cap))])
+                                           g_cap=g_cap,
+                                           realize_iter=realize_iter))])
     else:
         pipeline = DecisionTreeRegressor(random_state=rand_state, tb_verbose=tb_verbose, split_verbose=split_verbose, split_finder=split_finder, presort=presort,
                                          max_depth=max_depth,
-                                         g_cap=g_cap)
+                                         g_cap=g_cap,
+                                         realize_iter=realize_iter)
 
     # Append hyper-parameters to a dict, depending on pipeline or not
     if scaler in ("robust", "standard"):
@@ -291,7 +296,7 @@ def processEstimatorGridSearch(estimatorGS, tuneParams, xTrain, yTrain, xTest, y
     print('\nExecuting [processEstimatorGridSearch] using {} custom scorer...'.format(customScore))
     print(' {0}'.format(tuneParams))
     # Initialize best score and will be updated once found better
-    bestScore = -10000
+    bestScore = -np.inf
     bestGrid = {}
     bestEstimator = copy.deepcopy(estimatorGS)
     for grid in ParameterGrid(tuneParams):
