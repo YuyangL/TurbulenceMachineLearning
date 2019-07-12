@@ -17,7 +17,7 @@ cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor)
 # -----------------------------------------------------
 cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=2] labels)
 
-cdef np.ndarray[np.float_t, ndim=3] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=*)
+cdef np.ndarray[np.float_t, ndim=2] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=*)
 
 
 

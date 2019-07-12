@@ -5,8 +5,8 @@ import numpy
 
 system = 'linux'  # 'windows', 'linux'
 
-file_name = 'Tensor'
-# file_name = 'Feature'
+# file_name = 'Tensor'
+file_name = 'Feature'
 
 """
 python3 SetupCython.py build_ext --inplace

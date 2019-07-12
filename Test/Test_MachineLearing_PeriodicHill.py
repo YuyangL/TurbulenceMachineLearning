@@ -3,11 +3,11 @@ import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
-from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor
+from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData
 from Preprocess.Feature import getInvariantFeatureSet
 from Utility import interpolateGridData
 from Preprocess.FeatureExtraction import splitTrainTestDataList
-from GridSearchSetup import setupDecisionTreeGridSearchCV
+from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV
 import time as t
 # For Python 2.7, use cpickle
 try:
@@ -18,10 +18,10 @@ except ModuleNotFoundError:
 from scipy.interpolate import griddata
 from numba import njit, prange
 from Utilities import timer
-from sklearn.tree import plot_tree, DecisionTreeRegressor
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.multioutput import RegressorChain
 import matplotlib.pyplot as plt
-from PlottingTool import BaseFigure, Plot2D, Plot2D_Image
+from PlottingTool import BaseFigure, Plot2D_Image
 from scipy import ndimage
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
@@ -70,18 +70,18 @@ fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
 # and whether to save estimator after training
 train_model, save_estimator = True, True  # bool
 # Name of the ML estimator
-estimator_name = 'tbrc'  # "TBDT"/"tbdt"/"TBRF"/"tbrf"/"TBAB"/"tbab"/"TBRC"/"tbrc"
+estimator_name = 'tbdt'  # "TBDT"/"tbdt"/"TBRF"/"tbrf"/"TBAB"/"tbab"/"TBRC"/"tbrc"
 scaler = None  # "robust", "standard" or None
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
 max_features = 1.#(0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
-min_samples_leaf = 10#(4, 16)  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_leaf = 1#(4, 16)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
-min_samples_split = 20#(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_split = 2#(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = 20  # int
+max_depth = None  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
@@ -97,11 +97,15 @@ if estimator_name in ("TBRF", "tbrf"):
     n_estimators = 8  # int
     oob_score = True  # bool
     median_predict = True  # bool
+    # What to do with bij novelties
+    bij_novelty = 'excl'
 
 if estimator_name in ("TBAB", "tbab"):
-    n_estimators = 48  # int
+    n_estimators = 96  # int
     learning_rate = 0.1  # int
-    loss = "square"  # 'linear'/'square'/'exponential'
+    loss = "linear"  # 'linear'/'square'/'exponential'
+    # What to do with bij novelties
+    bij_novelty = 'lim'
 
 if estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
@@ -111,13 +115,13 @@ if estimator_name in ('TBRC', 'tbrc'):
 seed = 123
 # For debugging, verbose on bij reconstruction from Tij and g;
 # and/or verbose on "brent"/"brute"/"1000"/"auto" split finding scheme
-tb_verbose, split_verbose = True, False  # bool; bool
+tb_verbose, split_verbose = False, False  # bool; bool
 # Fraction of data for testing
 test_fraction = 0.2  # float [0-1]
 # Whether verbose on GSCV. 0 means off, larger means more verbose
 gscv_verbose = 2  # int
 # Number of n-fold cross validation
-cv = None  # int or None
+cv = 5  # int or None
 
 
 """
@@ -130,7 +134,7 @@ uniform_mesh_size = 1e6  # int
 # Number of contour levels in bij's plot
 contour_lvl = 50  # int
 # Limit for bij plot
-bijlims = (-1/3., 2/3.)  # (float, float)
+bijlims = (-1/2., 2/3.)  # (float, float)
 # Save anything when possible
 save_fields = True  # bool
 # Save figures and show figures
@@ -177,7 +181,6 @@ elif estimator_name in ('TBRC', 'tbrc'):
     min_samples_leaf = max(min_samples_leaf, 10)
     # Realizability iterator of bij prediction is turned off
     realize_iter = 0
-
 
 
 """
@@ -229,7 +232,7 @@ if process_invariants:
     # Step 1: strain rate and rotation rate tensor Sij and Rij
     sij, rij = case.getStrainAndRotationRateTensorField(grad_u, tke=k, eps=epsilon, cap=cap_sij_rij)
     # Step 2: 10 invariant bases TB
-    tb = case.getInvariantBasesField(sij, rij, quadratic_only = False, is_scale = True)
+    tb = case.getInvariantBasesField(sij, rij, quadratic_only=False, is_scale=True, zero_trace=False)
     # # Since TB is n_points x 10 x 3 x 3, reshape it to n_points x 10 x 9
     # tb = tb.reshape((tb.shape[0], tb.shape[1], 9))
 
@@ -275,7 +278,7 @@ if process_invariants:
 
 # Else if read RANS invariants and LES bij data from pickle
 else:
-    invariants = case.readPickleData(time, fileNames = ('Sij',
+    invariants = case.readPickleData(time, fileNames=('Sij',
                                                         'Rij',
                                                         'Tij',
                                                         'bij_LES'))
@@ -290,14 +293,13 @@ else:
 Calculate Feature Sets
 """
 if calculate_features:
-    # Feature set 1
-    # fs1 = getFeatureSet1(sij, rij)
     if fs == 'grad(TKE)':
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
     elif fs == 'grad(p)':
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_p=grad_p, u=u, grad_u=grad_u)
     elif fs == 'grad(TKE)_grad(p)':
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u, grad_u=grad_u)
+
     # If only feature set 1 used for ML input, then do train test data split here
     if save_fields:
         case.savePickleData(time, fs_data, fileNames = ('FS_' + fs))
@@ -321,8 +323,9 @@ def transposeTensorBasis(tb):
 
 # If split train and test data instead of directly read from pickle data
 if split_train_test_data:
-    # Transpose Tij so that it's n_samples x 9 components x 10 bases
-    tb = transposeTensorBasis(tb)
+    # # Transpose Tij so that it's n_samples x n_outputs x n_bases
+    # tb = transposeTensorBasis(tb)
+
     # X is RANS invariant features
     x = fs_data
     # y is LES bij interpolated to RANS grid
@@ -344,11 +347,11 @@ ccx_train, ccy_train, ccz_train = cc_train[:, 0], cc_train[:, 1], cc_train[:, 2]
 ccx_test, ccy_test, ccz_test = cc_test[:, 0], cc_test[:, 1], cc_test[:, 2]
 x_train, y_train, tb_train = list_data_train[1:4]
 x_test, y_test, tb_test = list_data_test[1:4]
-# Contract symmetric tensors to 6 components in case of 9 components
-y_train, y_test = contractSymmetricTensor(y_train), contractSymmetricTensor(y_test)
-tb_train, tb_test = transposeTensorBasis(tb_train), transposeTensorBasis(tb_test)
-tb_train, tb_test = contractSymmetricTensor(tb_train), contractSymmetricTensor(tb_test)
-tb_train, tb_test = transposeTensorBasis(tb_train), transposeTensorBasis(tb_test)
+# # Contract symmetric tensors to 6 components in case of 9 components
+# y_train, y_test = contractSymmetricTensor(y_train), contractSymmetricTensor(y_test)
+# tb_train, tb_test = transposeTensorBasis(tb_train), transposeTensorBasis(tb_test)
+# tb_train, tb_test = contractSymmetricTensor(tb_train), contractSymmetricTensor(tb_test)
+# tb_train, tb_test = transposeTensorBasis(tb_train), transposeTensorBasis(tb_test)
 
 
 """
@@ -381,13 +384,15 @@ if train_model:
                                           split_verbose=split_verbose, alpha_g_fit=alpha_g_fit,
                                           alpha_g_split=alpha_g_split, g_cap=g_cap,
                                           realize_iter=realize_iter,
-                                          median_predict=median_predict)
+                                          median_predict=median_predict,
+                                          bij_novelty=bij_novelty)
     elif estimator_name == 'TBAB':
         regressor = AdaBoostRegressor(base_estimator=base_estimator,
                                       n_estimators=n_estimators,
                                       learning_rate=learning_rate,
                                       loss=loss,
-                                      random_state=seed)
+                                      random_state=seed,
+                                      bij_novelty=bij_novelty)
     elif estimator_name == 'TBRC':
         regressor = RegressorChain(base_estimator=base_estimator,
                                    order=order,
@@ -395,11 +400,7 @@ if train_model:
                                    random_state=seed)
 
     t0 = t.time()
-    # regressor = DecisionTreeRegressor(presort=presort, max_depth=max_depth, tb_verbose=tb_verbose, min_samples_leaf=min_samples_leaf,
-    #                                   min_samples_split=min_samples_split,
-    #                                   split_finder=split_finder, split_verbose=split_verbose, max_features=max_features,
-    #                                   alpha_g_fit=alpha_g_fit,
-    #                                   alpha_g_split=alpha_g_split)
+    regressor = base_estimator
     regressor.fit(x_train, y_train, tb=tb_train)
     t1 = t.time()
     print('\nFinished DecisionTreeRegressor in {:.4f} s'.format(t1 - t0))
@@ -488,7 +489,8 @@ geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv",
 figname = 'barycentric_periodichill_test_seed' + str(seed)
 bary_map = BaseFigure((None,), (None,), name=figname, xLabel=xlabel,
                       yLabel=ylabel, save=save_fig, show=show,
-                      figDir=case.resultPaths[time])
+                      figDir=case.resultPaths[time],
+                      figHeightMultiplier=0.75)
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=bary_map.gray)
 # patch is considered "a single artist" so have to make copy to use more than once
@@ -511,7 +513,7 @@ plt.close()
 
 bary_map.name = 'barycentric_periodichill_pred_test_seed' + str(seed)
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_pred_test_mesh, origin='upper', aspect='equal', extent=extent_test, interpolation="bicubic")
+bary_map.axes[0].imshow(rgb_bary_pred_test_mesh, origin='upper', aspect='equal', extent=extent_test)
 bary_map.axes[0].set_xlabel(bary_map.xLabel)
 bary_map.axes[0].set_ylabel(bary_map.yLabel)
 bary_map.axes[0].add_patch(next(patches))
@@ -566,55 +568,61 @@ fignames_train = ('b11_periodichill_train_seed' + str(seed),
                  'b22_periodichill_train_seed' + str(seed),
                  'b23_periodichill_train_seed' + str(seed),
                  'b33_periodichill_train_seed' + str(seed))
-zlabels = (r'$b_{11} [-]$', r'$b_{12} [-]$', '$b_{13} [-]$', '$b_{22} [-]$', '$b_{23} [-]$', '$b_{33} [-]$')
+zlabels = ('$b_{11}$ [-]', '$b_{12}$ [-]', '$b_{13}$ [-]', '$b_{22}$ [-]', '$b_{23}$ [-]', '$b_{33}$ [-]')
+zlabels_pred = ('$\hat{b}_{11}$ [-]', '$\hat{b}_{12}$ [-]', '$\hat{b}_{13}$ [-]', '$\hat{b}_{22}$ [-]', '$\hat{b}_{23}$ [-]', '$\hat{b}_{33}$ [-]')
+# Go through every bij component and plot
 for i in range(len(zlabels)):
     bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xLabel=xlabel,
-                                     yLabel=ylabel, zlabel=zlabels[i],
+                                     yLabel=ylabel, zLabel=zlabels_pred[i],
                                      save=save_fig, show=show,
                                      figDir=case.resultPaths[time],
                                      figWidth='1/3',
                                      zlim=bijlims,
                                      rotate_img=True,
-                                     extent=extent_test)
+                                     extent=extent_test,
+                                     figHeightMultiplier=0.75)
     bij_predtest_plot.initializeFigure()
     bij_predtest_plot.plotFigure()
     bij_predtest_plot.axes[0].add_patch(next(patches))
     bij_predtest_plot.finalizeFigure()
 
     bij_test_plot = Plot2D_Image(val=y_test_mesh[:, :, i], name=fignames_test[i], xLabel=xlabel,
-                                     yLabel=ylabel, zlabel=zlabels[i],
+                                     yLabel=ylabel, zLabel=zlabels[i],
                                      save=save_fig, show=show,
                                      figDir=case.resultPaths[time],
                                      figWidth='1/3',
                                      zlim=bijlims,
                                      rotate_img=True,
-                                     extent=extent_test)
+                                     extent=extent_test,
+                                    figHeightMultiplier=0.75)
     bij_test_plot.initializeFigure()
     bij_test_plot.plotFigure()
     bij_test_plot.axes[0].add_patch(next(patches))
     bij_test_plot.finalizeFigure()
 
     bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xLabel=xlabel,
-                                     yLabel=ylabel, zlabel=zlabels[i],
+                                     yLabel=ylabel, zLabel=zlabels_pred[i],
                                      save=save_fig, show=show,
                                      figDir=case.resultPaths[time],
                                      figWidth='1/3',
                                      zlim=bijlims,
                                      rotate_img=True,
-                                     extent=extent_test)
+                                     extent=extent_test,
+                                      figHeightMultiplier=0.75)
     bij_predtrain_plot.initializeFigure()
     bij_predtrain_plot.plotFigure()
     bij_predtrain_plot.axes[0].add_patch(next(patches))
     bij_predtrain_plot.finalizeFigure()
 
     bij_train_plot = Plot2D_Image(val=y_train_mesh[:, :, i], name=fignames_train[i], xLabel=xlabel,
-                                     yLabel=ylabel, zlabel=zlabels[i],
+                                     yLabel=ylabel, zLabel=zlabels[i],
                                      save=save_fig, show=show,
                                      figDir=case.resultPaths[time],
                                      figWidth='1/3',
                                      zlim=bijlims,
                                      rotate_img=True,
-                                     extent=extent_test)
+                                     extent=extent_test,
+                                    figHeightMultiplier=0.75)
     bij_train_plot.initializeFigure()
     bij_train_plot.plotFigure()
     bij_train_plot.axes[0].add_patch(next(patches))

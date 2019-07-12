@@ -73,9 +73,10 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
 
             # Add each anisotropy tensor to each mesh grid location, in depth
             # bij is 3D with z being b11, b12, b13, b21, b22, b23...
-            bij = np.hstack((stress_tensor[:, 0], stress_tensor[:, 1], stress_tensor[:, 2],
-                             stress_tensor[:, 1], stress_tensor[:, 3], stress_tensor[:, 4],
-                             stress_tensor[:, 2], stress_tensor[:, 4], stress_tensor[:, 5]))
+            bij = stress_tensor[:, (0, 1, 2, 1, 3, 4, 2, 4, 5)]
+            # bij = np.hstack((stress_tensor[:, 0], stress_tensor[:, 1], stress_tensor[:, 2],
+            #                  stress_tensor[:, 1], stress_tensor[:, 3], stress_tensor[:, 4],
+            #                  stress_tensor[:, 2], stress_tensor[:, 4], stress_tensor[:, 5]))
         else:
             for i in range(9):
                 stress_tensor[:, i] = stress_tensor[:, i]/(2.*k) - 1/3. if i in (0, 4, 8) else stress_tensor[:, i]/(2.*k)
@@ -83,9 +84,10 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
     # Else if stress tensor is already anisotropic
     else:
         if stress_tensor.shape[1] == 6:
-            bij = np.hstack((stress_tensor[:, 0], stress_tensor[:, 1], stress_tensor[:, 2],
-                             stress_tensor[:, 1], stress_tensor[:, 3], stress_tensor[:, 4],
-                             stress_tensor[:, 2], stress_tensor[:, 4], stress_tensor[:, 5]))
+            bij = stress_tensor[:, (0, 1, 2, 1, 3, 4, 2, 4, 5)]
+            # bij = np.hstack((stress_tensor[:, 0], stress_tensor[:, 1], stress_tensor[:, 2],
+            #                  stress_tensor[:, 1], stress_tensor[:, 3], stress_tensor[:, 4],
+            #                  stress_tensor[:, 2], stress_tensor[:, 4], stress_tensor[:, 5]))
         else:
             bij = stress_tensor
 
@@ -208,6 +210,64 @@ cpdef tuple getBarycentricMapData(np.ndarray eigval, bint optimize_cmap=True, do
     return xy_bary, rgb_bary
 
 
+cpdef np.ndarray expandSymmetricTensor(np.ndarray tensor):
+    """
+    Expand an nD compact symmetric tensor of 6 components to 9 components.
+    The given nD compact symmetric tensor can have any shape but the last D must be 6 components.
+    The returned full nD symmetric tensor will have the same shape of given symmetric tensor except last D being 9 components.
+    
+    :param tensor: nD symmetric tensor of 6 components. n can be any number.
+    :type tensor: ndarray[..., 6] 
+    :return: nD symmetric tensor of 9 components with same nD as tensor.
+    If given tensor doesn't have 6 components in the last D, the original tensor is returned. 
+    :rtype: ndarray[..., 9] or ndarray
+    """
+    cdef tuple shape_old = np.shape(tensor)
+    cdef np.ndarray tensor_full
+    cdef unsigned int last_ax = len(shape_old) - 1
+    cdef tuple idx_1to9
+
+    # If the symmetric tensor nD array's last D isn't 6 components, return old tensor
+    if tensor.shape[last_ax] != 6:
+
+        return tensor
+
+    # Indices to concatenate
+    idx_1to9 = (0, 1, 2, 1, 3, 4, 2, 4, 5)
+    tensor_full = tensor[..., idx_1to9]
+
+    return tensor_full
+
+
+cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor):
+    """
+    Contract an nD full symmetric tensor of 9 components to 6 components.
+    The given nD full symmetric tensor can have any shape but the last D must be 9 components.
+    The returned compact nD symmetric tensor will have the same shape of given symmetric tensor except last D being 6 components.
+    
+    :param tensor: nD full symmetric tensor of 9 components. n can be any number.
+    :type tensor: ndarray[..., 9] 
+    :return: nD compact symmetric tensor of 6 components with same nD as tensor.
+    If given tensor doesn't have 9 components in the last D, the original tensor is returned. 
+    :rtype: ndarray[..., 6] or ndarray
+    """
+    cdef tuple shape_old = np.shape(tensor)
+    cdef np.ndarray tensor_compact
+    cdef unsigned int last_ax = len(shape_old) - 1
+    cdef tuple idx_1to6
+
+    # If the symmetric tensor nD array's last D isn't 9 components, return old tensor
+    if tensor.shape[last_ax] != 9:
+
+        return tensor
+
+    # Indices to concatenate
+    idx_1to6 = (0, 1, 2, 4, 5, 8)
+    tensor_compact = tensor[..., idx_1to6]
+
+    return tensor_compact
+
+
 
 
 # -----------------------------------------------------
@@ -230,11 +290,13 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
     :return: The predicted realizable anisotropy tensor.
     :type: np.ndarray[n_points, 9]
     """
-    cdef int n_points, i, j
+    cdef unsigned int n_points, i, j
     cdef np.ndarray[np.float_t, ndim=2] A, evectors
     cdef np.ndarray[np.float_t] evalues
+    cdef list bii
 
     n_points = labels.shape[0]
+    bii = [0, 4, 8]
     A = np.zeros((3, 3))
     for i in range(n_points):
         # Scales all on-diags to retain zero trace
@@ -266,7 +328,7 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
             evalues = evalues*(3.*np.abs(np.sort(evalues)[1]) - np.sort(evalues)[1])/(2.*np.max(evalues))
             A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
             for j in range(3):
-                labels[i, j] = A[j, j]
+                labels[i, bii[j]] = A[j, j]
 
             labels[i, 1] = A[0, 1]
             labels[i, 5] = A[1, 2]
@@ -274,11 +336,12 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
             labels[i, 3] = A[0, 1]
             labels[i, 7] = A[1, 2]
             labels[i, 6] = A[0, 2]
+
         if np.max(evalues) > 1./3. - np.sort(evalues)[1]:
             evalues = evalues*(1./3. - np.sort(evalues)[1])/np.max(evalues)
             A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
             for j in range(3):
-                labels[i, j] = A[j, j]
+                labels[i, bii[j]] = A[j, j]
 
             labels[i, 1] = A[0, 1]
             labels[i, 5] = A[1, 2]
@@ -290,7 +353,7 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
     return labels
 
 
-cdef np.ndarray[np.float_t, ndim=3] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=None):
+cdef np.ndarray[np.float_t, ndim=2] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=None):
     """
     Map a vector to the anti-symmetric tensor A by
     A = -I x vector where I is the 2nd order identity matrix,
@@ -303,13 +366,13 @@ cdef np.ndarray[np.float_t, ndim=3] _mapVectorToAntisymmetricTensor(np.ndarray[n
     :type scaler: ndarray[n_points] or ndarray[n_points, vector size] or None, optional (default=None)
     
     :return: (Non-dimensionalized and/or normalized) anti-symmetric tensor from given vector array (and scaler).
-    :rtype: ndarray[n_points, vector size, vector size]
+    :rtype: ndarray[n_points, vector size^2]
     """
-    cdef np.ndarray[np.float_t, ndim=3] asymm_tensor
+    cdef np.ndarray[np.float_t, ndim=2] asymm_tensor
     cdef int i
 
     # Antisymmetric tensor is n_points x vector size x vector size. E.g. grad(TKE) is n_points x 3 x 3
-    asymm_tensor = np.empty((vec.shape[0], vec.shape[1], vec.shape[1]))
+    asymm_tensor = np.empty((vec.shape[0], (vec.shape[1])**2))
     # Go through every point and calculate the cross product: -I x vec, e.g. -I x grad(TKE)
     for i in range(vec.shape[0]):
         # Scale the vector so that it's dimensionless/normalized.
@@ -317,7 +380,7 @@ cdef np.ndarray[np.float_t, ndim=3] _mapVectorToAntisymmetricTensor(np.ndarray[n
         if scaler is not None:
             vec[i] *= scaler[i]
 
-        asymm_tensor[i] = -np.cross(np.eye(3), vec[i])
+        asymm_tensor[i] = -np.cross(np.eye(vec.shape[1]), vec[i]).ravel()
 
     print("\nVector mapped to an anti-asymmetric tensor of shape " + str(np.shape(asymm_tensor)))
     return asymm_tensor

@@ -13,7 +13,7 @@ cpdef tuple getInvariantFeatureSet(np.ndarray sij, np.ndarray rij,
 # -----------------------------------------------------
 # Supporting Functions, Not Intended to Be Called From Python
 # -----------------------------------------------------
-cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=3] sij, np.ndarray[np.float_t, ndim=3] rij,
+cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=2] sij, np.ndarray[np.float_t, ndim=2] rij,
                                         np.ndarray grad1=*, np.ndarray grad2=*, np.ndarray grad1_scaler=*, np.ndarray grad2_scaler=*)
 
 

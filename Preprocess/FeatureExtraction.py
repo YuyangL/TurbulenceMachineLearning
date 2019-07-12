@@ -79,7 +79,7 @@ def splitTrainTestDataList(list_data, test_fraction=0.2, sample_size=None, repla
 
     # If sample_size is None, use all samples
     # Otherwise use provided sample_size but limit it
-    sample_size = len(list_data[0]) if sample_size is None else min(sample_size, len(list_data[0]))
+    sample_size = len(list_data[0]) if sample_size is None else int(min(sample_size, len(list_data[0])))
 
     # Indices of the samples randomized
     np.random.seed(seed)
@@ -88,7 +88,7 @@ def splitTrainTestDataList(list_data, test_fraction=0.2, sample_size=None, repla
     train_size = int(sample_size*(1. - test_fraction))
     test_size = sample_size - train_size
     # Indices of train and test data after randomization and sampling
-    indices_train, indices_test = rand_indices[:train_size - 1], rand_indices[train_size:(train_size + test_size - 1)]
+    indices_train, indices_test = rand_indices[:train_size], rand_indices[train_size:sample_size]
     # Go through all provided data
     list_data_train, list_data_test = list_data.copy(), list_data.copy()
     for i in range(len(list_data)):

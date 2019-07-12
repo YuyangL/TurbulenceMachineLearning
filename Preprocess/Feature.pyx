@@ -32,10 +32,10 @@ cpdef tuple getInvariantFeatureSet(np.ndarray sij, np.ndarray rij,
     
     From Wu et al., Physics-Informed Machine Learning Approach for Augmenting Turbulence Models: A Comprehensive Framework.
     
-    :param sij: Dimensionless strain rate tensor Sij of shape (n_samples / mesh grid, 3, 3).
-    :type sij: ndarray[n_samples / mesh grid, 3, 3]
-    :param rij: Dimensionless rotation rate tensor Rij of shape (n_samples / mesh grid, 3, 3).
-    :type rij: ndarray[n_samples / mesh grid, 3, 3]
+    :param sij: Dimensionless strain rate tensor Sij of shape (n_samples / mesh grid, 3, 3) or (n_samples / mesh grid, 6/9).
+    :type sij: ndarray[n_samples / mesh grid, 3, 3] or ndarray[n_samples / mesh grid, 6/9]
+    :param rij: Dimensionless rotation rate tensor Rij of shape (n_samples / mesh grid, 3, 3) or (n_samples / mesh grid, 6/9).
+    :type rij: ndarray[n_samples / mesh grid, 3, 3] or ndarray[n_samples / mesh grid, 6/9]
     :param grad_k: Spatial gradient of TKE of shape (n_samples / mesh grid, 3).
     If None, no invariant features are calculated based on grad(TKE).
     :type grad_k: ndarray[n_samples / mesh grid, 3] or None, optional (default=None)
@@ -129,21 +129,21 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=2] sij, np.ndarra
                                                 np.ndarray grad1=None, np.ndarray grad2=None, np.ndarray grad1_scaler=None, np.ndarray grad2_scaler=None):
     """
     Calculate invariant features for samples, given at least non-dimensionalized strain rate and rotation rate tensor Sij, Rij.
-    If only non-dimensionalized Sij and Rij of shape (n_samples, 3, 3) are provided, 
+    If only non-dimensionalized Sij of shape (n_samples, 6) and Rij of shape (n_samples, 9) are provided, 
     then 6 invariant features are calculated.
-    Else if an extra scalar gradient of shape (n_samples, 3, 3) is provided, 
+    Else if an extra scalar gradient of shape (n_samples, 3) is provided, 
     then 19 invariant features will be calculated.
-    Else if extra 2 scalar gradients of shape (n_samples, 3, 3) are provided, 
+    Else if extra 2 scalar gradients of shape (n_samples, 3) are provided, 
     then 47 invariant features will be calculated.
     Scalar gradient(s) is first mapped to an anti-symmetric tensor and non-dimensionalized if corresponding scaler is provided, 
     before calculating invariant features.
     
     From Appendix C of Wu et al., Physics-Informed Machine Learning Approach for Augmenting Turbulence Models: A Comprehensive Framework.
     
-    :param sij: Non-dimensionalized strain rate tensor Sij of shape (n_samples, 3, 3). 
-    :type sij: ndarray[n_samples, 3, 3]
-    :param rij: Non-dimensionalized rotation rate tensor Rij of shape (n_samples, 3, 3).
-    :type rij: ndarray[n_samples, 3, 3]
+    :param sij: Non-dimensionalized strain rate symmetric tensor Sij of shape (n_samples, 6). 
+    :type sij: ndarray[n_samples, 6]
+    :param rij: Non-dimensionalized rotation rate tensor Rij of shape (n_samples, 9).
+    :type rij: ndarray[n_samples, 9]
     :param grad1: A scalar gradient e.g. grad(TKE) of shape (n_samples, 3).
     If None, then no invariant feature is calculated based on this information.
     :type grad1: ndarray[n_samples, 3] or None, optional (default=None)
@@ -162,7 +162,7 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=2] sij, np.ndarra
     and its corresponding string labels.
     :rtype: (ndarray[n_samples, n_features], tuple)
     """
-    cdef np.ndarray[np.float_t, ndim=3] asymm_tensor1, asymm_tensor2
+    cdef np.ndarray[np.float_t, ndim=2] asymm_tensor1, asymm_tensor2
     cdef tuple labels
     cdef int milestone = 10
     cdef unsigned int i, j, n_inv, n_grad
