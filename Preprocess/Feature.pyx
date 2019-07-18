@@ -200,7 +200,7 @@ cdef tuple _getInvaraintFeatureSet(np.ndarray[np.float_t, ndim=2] sij, np.ndarra
                   'R^2*A1*S', 'A1^2*R*S', 'R^2*A1*S^2', 'A1^2*R*S^2', 'R^2*S*A1*S^2', 'A1^2*S*R*S^2',
                   'A2^2', 'A2^2*S', 'A2^2*S^2', 'A2^2*S*A2*S^2', 'R*A2', 'R*A2*S', 'R*A2*S^2',
                   'R^2*A2*S', 'A2^2*R*S', 'R^2*A2*S^2', 'A2^2*R*S^2', 'R^2*S*A2*S^2', 'A2^2*S*R*S^2',
-                  'A1*A2', 'A1*A2*S', 'A1*A2*S^2', 'A1^2*A2*S', 'A2^2*A1*S', 'A1^2*A2*S^2', 'A2^2*A2*S^2', 'A1^2*S*A2*S^2', 'A2^2*S*A1*S^2',
+                  'A1*A2', 'A1*A2*S', 'A1*A2*S^2', 'A1^2*A2*S', 'A2^2*A1*S', 'A1^2*A2*S^2', 'A2^2*A1*S^2', 'A1^2*S*A2*S^2', 'A2^2*S*A1*S^2',
                   'R*A1*A2', 'R*A1*A2*S', 'R*A2*A1*S', 'R*A1*A2*S^2', 'R*A2*A1*S^2', 'R*A1*S*A2*S^2')
         print("\nCalculating 47 invariant features with Sij, Rij, and 2 scalar gradients... ")
 

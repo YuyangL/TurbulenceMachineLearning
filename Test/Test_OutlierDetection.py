@@ -38,6 +38,7 @@ Machine Learning Settings
 """
 isoforest_name = 'IsoForest'
 estimator_name = 'tbdt'
+fs = 'grad(TKE)_grad(p)'
 # Seed value for reproducibility
 seed = 123
 outlier_percent1, outlier_percent2, outlier_percent3, outlier_percent4, outlier_percent5 = \
@@ -48,14 +49,15 @@ load_isoforest, save_estimator = True, True
 """
 Plot Settings
 """
-plot_tb, plot_g = False, False
+plot_tb, plot_g, plot_x = False, False, True
 # When plotting, the mesh has to be uniform by interpolation, specify target size
 uniform_mesh_size = 1e6  # int
 # Limit for bij plot
-bijlims = (-1/3., 2/3.)  # (float, float)
+bijlims = (-1/2., 2/3.)  # (float, float)
 contour_lvl = 50  # int
 alpha = 0.6  # int, float [0, 1]
 gray = (80/255.,)*3
+figheight_multiplier = 1.1
 # Save anything when possible
 save_fields = True  # bool
 # Save figures and show figures
@@ -180,26 +182,26 @@ xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
 geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
 # Test barycentric map
 figname = 'barycentric_periodichill_test_out'
-bary_map = BaseFigure((None,), (None,), name=figname, xLabel=xlabel,
-                      yLabel=ylabel, save=save_fig, show=show,
-                      figDir=case.resultPaths[time],
-                      figHeightMultiplier=0.75)
+bary_map = BaseFigure((None,), (None,), name=figname, xlabel=xlabel,
+                      ylabel=ylabel, save=save_fig, show=show,
+                      figdir=case.resultPaths[time],
+                      figheight_multiplier=0.7)
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=bary_map.gray)
 # patch is considered "a single artist" so have to make copy to use more than once
 patches = []
-for _ in range(142):
+for _ in range(236):
     patches.append(copy(patch))
 
 patches = iter(patches)
 extent_test = (ccx_test.min(), ccx_test.max(), ccy_test.min(), ccy_test.max())
 extent_train = (ccx_train.min(), ccx_train.max(), ccy_train.min(), ccy_train.max())
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_test_mesh, origin='upper', aspect='equal', extent=extent_test)
-bary_map.axes[0].imshow(rgb_bary_test_out_mesh, origin='upper', aspect='equal', extent=extent_test, alpha=alpha)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_test_mesh, origin='upper', aspect='equal', extent=extent_test)
+bary_map.axes.imshow(rgb_bary_test_out_mesh, origin='upper', aspect='equal', extent=extent_test, alpha=alpha)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
     plt.savefig(case.resultPaths[time] + figname + '.' + ext, dpi=dpi)
 
@@ -207,11 +209,11 @@ plt.close()
 # Train barycentric map
 bary_map.name = 'barycentric_periodichill_train_out'
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_train_mesh, origin='upper', aspect='equal', extent=extent_train)
-bary_map.axes[0].imshow(rgb_bary_train_out_mesh, origin='upper', aspect='equal', extent=extent_test, alpha=alpha)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_train_mesh, origin='upper', aspect='equal', extent=extent_train)
+bary_map.axes.imshow(rgb_bary_train_out_mesh, origin='upper', aspect='equal', extent=extent_test, alpha=alpha)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
     plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
@@ -260,34 +262,37 @@ if plot_tb:
             # Initialize PLot2D_Image object
             tbplot_test = Plot2D_Image(val=tb_test_mesh[..., i, j],
                                        name=figname,
-                                       xLabel=xlabel, yLabel=ylabel, zLabel=zlabel,
+                                       xlabel=xlabel, ylabel=ylabel, val_label=zlabel,
                                        save=save_fig,
                                        show=show,
-                                       figDir=tijdir,
+                                       figdir=tijdir,
                                        rotate_img=True,
                                        extent=extent_test,
-                                       figWidth='1/3',
-                                       zlim=tblim)
+                                       figwidth='1/3',
+                                       val_lim=tblim,
+                                       figheight_multiplier=figheight_multiplier)
             tbplot_test.initializeFigure()
             tbplot_test.plotFigure()
-            tbplot_test.axes[0].add_patch(next(patches))
+            tbplot_test.axes.ticklabel_format(scilimits=(-4, 5))
+            tbplot_test.axes.add_patch(next(patches))
             tbplot_test.finalizeFigure()
     
             # Then plot train Tij
             figname = 'T' + comps[i] + '_' + str(j + 1) + '_train'
             tbplot_train = Plot2D_Image(val=tb_train_mesh[..., i, j],
                                        name=figname,
-                                       xLabel=xlabel, yLabel=ylabel, zLabel=zlabel,
+                                       xlabel=xlabel, ylabel=ylabel, val_label=zlabel,
                                        save=save_fig,
                                        show=show,
-                                       figDir=tijdir,
+                                       figdir=tijdir,
                                        rotate_img=True,
                                        extent=extent_train,
-                                       figWidth='1/3',
-                                       zlim=tblim)
+                                       figwidth='1/3',
+                                       val_lim=tblim,
+                                        figheight_multiplier=figheight_multiplier)
             tbplot_train.initializeFigure()
             tbplot_train.plotFigure()
-            tbplot_train.axes[0].add_patch(next(patches))
+            tbplot_train.axes.add_patch(next(patches))
             tbplot_train.finalizeFigure()
 
 
@@ -323,17 +328,18 @@ if plot_g:
         figname = 'g' + str(i + 1) + '_diff'
         gplot_diff = Plot2D_Image(val=g_diff_mesh[:, i],
                                   name=figname,
-                                  xLabel=xlabel, yLabel=ylabel, zLabel=zlabel,
+                                  xlabel=xlabel, ylabel=ylabel, val_label=zlabel,
                                   save=save_fig,
                                   show=show,
-                                  figDir=gdir,
+                                  figdir=gdir,
                                   rotate_img=True,
                                   extent=extent_test,
-                                  figWidth='1/3',
-                                  zlim=glim)
+                                  figwidth='1/3',
+                                  val_lim=glim,
+                                  figheight_multiplier=figheight_multiplier)
         gplot_diff.initializeFigure()
         gplot_diff.plotFigure(norm='symlog')
-        gplot_diff.axes[0].add_patch(next(patches))
+        gplot_diff.axes.add_patch(next(patches))
         gplot_diff.finalizeFigure(cbticks=cbticks)
 
         # # First test g
@@ -352,7 +358,7 @@ if plot_g:
         #                           zlim=glim)
         # gplot_test.initializeFigure()
         # gplot_test.plotFigure(norm='symlog')
-        # gplot_test.axes[0].add_patch(next(patches))
+        # gplot_test.axes.add_patch(next(patches))
         # gplot_test.finalizeFigure()
         #
         # # Then train g
@@ -369,10 +375,84 @@ if plot_g:
         #                           zlim=glim)
         # gplot_train.initializeFigure()
         # gplot_train.plotFigure(norm='symlog')
-        # gplot_train.axes[0].add_patch(next(patches))
+        # gplot_train.axes.add_patch(next(patches))
         # gplot_train.finalizeFigure()
 
 
+if plot_x:
+    xdir = case.resultPaths[time] + '/X'
+    os.makedirs(xdir, exist_ok=True)
+    # Interpolate to mesh
+    _, _, _, x_test_mesh = interpolateGridData(ccx_test, ccy_test, x_test,
+                                               mesh_target=uniform_mesh_size,
+                                               interp=interp_method)
+    _, _, _, x_train_mesh = interpolateGridData(ccx_train, ccy_train, x_train,
+                                                mesh_target=uniform_mesh_size, interp=interp_method)
+
+    if fs == 'grad(TKE)_grad(p)':
+        labels = ['S^2', 'S^3', '\Omega^2', '\Omega^2S', '\Omega^2S^2', '\Omega^2S\Omega S^2',
+                  'A_k^2', 'A_k^2S', 'A_k^2S^2', 'A_k^2SA_kS^2', '\Omega A_k', '\Omega A_kS', '\Omega A_kS^2',
+                  '\Omega^2A_kS', 'A_k^2\Omega S', '\Omega^2A_kS^2', 'A_k^2\Omega S^2', '\Omega^2SA_kS^2', 'A_k^2S\Omega S^2',
+                  'A_p^2', 'A_p^2S', 'A_p^2S^2', 'A_p^2SA_pS^2', '\Omega A_p', '\Omega A_pS', '\Omega A_pS^2',
+                  '\Omega^2A_pS', 'A_p^2\Omega S', '\Omega^2A_pS^2', 'A_p^2\Omega S^2', '\Omega^2SA_pS^2', 'A_p^2S\Omega S^2',
+                  'A_kA_p', 'A_kA_pS', 'A_kA_pS^2', 'A_k^2A_pS', 'A_p^2A_kS', 'A_k^2A_pS^2', 'A_p^2A_kS^2',
+                  'A_k^2SA_pS^2', 'A_p^2SA_kS^2',
+                  '\Omega A_kA_p', '\Omega A_kA_pS', '\Omega A_pA_kS', '\Omega A_kA_pS^2', '\Omega A_pA_kS^2', '\Omega A_kSA_pS^2']
+        zlabel = ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6',
+                  '2.1', '2.2', '2.3', '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '2.10', '2.11', '2.12', '2.13',
+                  '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9', '3.10', '3.11', '3.12', '3.13',
+                  '4.1', '4.2', '4.3', '4.4', '4.5', '4.6', '4.7', '4.8', '4.9', '4.10', '4.11', '4.12', '4.13', '4.14', '4.15']
+    elif 'grad(TKE)' in fs:
+        labels = ['S^2', 'S^3', '\Omega^2', '\Omega^2S', '\Omega^2S^2', '\Omega^2S\Omega S^2',
+                  'A_k^2', 'A_k^2S', 'A_k^2S^2', 'A_k^2SA_kS^2', '\Omega A_k', '\Omega A_kS', '\Omega A_kS^2',
+                  '\Omega^2A_kS', 'A_k^2\Omega S', '\Omega^2A_kS^2', 'A_k^2\Omega S^2', '\Omega^2SA_kS^2', 'A_k^2S\Omega S^2']
+        zlabel = ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6',
+                  '2.1', '2.2', '2.3', '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '2.10', '2.11', '2.12', '2.13']
+    else:
+        labels = ['S^2', 'S^3', '\Omega^2', '\Omega^2S', '\Omega^2S^2', '\Omega^2S\Omega S^2']
+        zlabel = ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6']
+
+    for i in range(len(zlabel)):
+        zlabel[i] = 'Feature ' + zlabel[i] + ' [-]'
+        labels[i] = '$' + labels[i] + '$ [-]'
+
+    for i in range(x_test.shape[1]):
+        # For test features
+        figname = 'X' + str(i + 1) + 'test'
+        xlim = min(min(x_train[:, i]), min(x_test[:, i])), max(max(x_train[:, i]), max(x_test[:, i]))
+        xtest_plot = Plot2D_Image(val=x_test_mesh[..., i],
+                                  name=figname,
+                                  xlabel=xlabel, ylabel=ylabel, val_label=labels[i],
+                                  save=save_fig,
+                                  show=show,
+                                  figdir=xdir,
+                                  rotate_img=True,
+                                  extent=extent_test,
+                                  figwidth='1/3',
+                                  val_lim=xlim,
+                                  figheight_multiplier=figheight_multiplier)
+        xtest_plot.initializeFigure()
+        xtest_plot.plotFigure()
+        xtest_plot.axes.add_patch(next(patches))
+        xtest_plot.finalizeFigure()
+
+        # For train features
+        figname = 'X' + str(i + 1) + 'train'
+        xtrain_plot = Plot2D_Image(val=x_train_mesh[..., i],
+                                  name=figname,
+                                  xlabel=xlabel, ylabel=ylabel, val_label=labels[i],
+                                  save=save_fig,
+                                  show=show,
+                                  figdir=xdir,
+                                  rotate_img=True,
+                                  extent=extent_train,
+                                  figwidth='1/3',
+                                  val_lim=xlim,
+                                  figheight_multiplier=figheight_multiplier)
+        xtrain_plot.initializeFigure()
+        xtrain_plot.plotFigure()
+        xtrain_plot.axes.add_patch(next(patches))
+        xtrain_plot.finalizeFigure()
 
 
 
@@ -408,7 +488,7 @@ if plot_g:
 #     tbplot_test.plotFigure()
 #     for j in range(4):
 #         patch_i = next(patches)
-#         tbplot_test.axes[0].add_patch(patch_i)
+#         tbplot_test.axes.add_patch(patch_i)
 #         art3d.pathpatch_2d_to_3d(patch_i, z=j, zdir='x')
 #
 #     # plt.show()
@@ -421,5 +501,5 @@ if plot_g:
 #     #                              name=figname, xLabel=xlabel, yLabel=ylabel,save=save_fig, show=show, figDir=case.resultPaths[time])
 #     # tbplot_train.initializeFigure()
 #     # tbplot_train.plotFigure()
-#     # tbplot_train.axes[0].add_patch(next(patches))
+#     # tbplot_train.axes.add_patch(next(patches))
 #     # tbplot_train.finalizeFigure()

@@ -22,12 +22,13 @@ from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 from copy import copy
 from joblib import load, dump
+import os
 
 """
 User Inputs, Anything Can Be Changed Here
 """
-# Rotation angle around z axis
-rot_z = 30  # deg
+# Rotation angle around x, y, z axis
+rot_x, rot_y, rot_z = 10, 20, 30  # deg
 # Name of the flow case in both RANS and LES
 rans_case_name = 'RANS_Re10595'  # str
 les_case_name = 'LES_Breuer/Re_10595'  # str
@@ -55,7 +56,7 @@ if process_invariants:
 """
 Machine Learning Setting
 """
-estimator_name = 'tbrf'
+estimator_name = 'tbdt'
 fs = 'grad(TKE)_grad(p)'
 test_fraction = 0.2
 # Seed value for reproducibility
@@ -74,7 +75,8 @@ uniform_mesh_size = 1e6  # int
 # Number of contour levels in bij's plot
 contour_lvl = 50  # int
 # Limit for bij plot
-bijlims = (-1/3., 2/3.)  # (float, float)
+bijlims = (-1/2., 2/3.)  # (float, float)
+figheight_multiplier = 1.1
 # Save anything when possible
 save_fields = True  # bool
 # Save figures and show figures
@@ -105,7 +107,9 @@ fields = ('U', 'k', 'p', 'omega',
 #               'grad_U')
 
 # Convert rotation angle from degree to radian
-if rot_z > 2.*np.pi: rot_z = rot_z/180.*np.pi
+rot_x_rad = rot_x/180.*np.pi if rot_x > 2.*np.pi else rot_x
+rot_y_rad = rot_y/180.*np.pi if rot_y > 2.*np.pi else rot_y
+rot_z_rad = rot_z/180.*np.pi if rot_z > 2.*np.pi else rot_z
 # Ensemble name of fields useful for Machine Learning
 ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 if estimator_name == "tbdt":
@@ -142,11 +146,17 @@ tb = invariants['Tij']
 bij_les = invariants['bij_LES']
 del invariants
 cc = case.readPickleData(time, fileNames='cc')
-# Rotation matrix around z axis
-rotij_z = np.array([[np.cos(rot_z), -np.sin(rot_z), 0],
-                    [np.sin(rot_z), np.cos(rot_z), 0],
+# Rotation matrix around x, y, and z axis
+rotij_z = np.array([[np.cos(rot_z_rad), -np.sin(rot_z_rad), 0],
+                    [np.sin(rot_z_rad), np.cos(rot_z_rad), 0],
                     [0, 0, 1]])
-# TODO: make rotij = rotij_z @ rotij_y @ rotij_x
+rotij_y = np.array([[np.cos(rot_y_rad), 0, np.sin(rot_y_rad)],
+                    [0, 1, 0],
+                    [-np.sin(rot_y_rad), 0, np.cos(rot_y_rad)]])
+rotij_x = np.array([[1, 0, 0],
+                    [0, np.cos(rot_x_rad), -np.sin(rot_x_rad)],
+                    [0, np.sin(rot_x_rad), np.cos(rot_x_rad)]])
+rotij = rotij_z @ (rotij_y @ rotij_x)
 
 # Make sure Tij is shape (n_samples, n_bases, n_outputs)
 tb_t = np.swapaxes(tb, 1, 2) if tb.shape[2] == 10 else tb
@@ -168,16 +178,16 @@ sij_rot, rij_rot = np.empty_like(sij_full), np.empty_like(rij_full)
 tb_t_rot, tb_rot = np.empty_like(tb_t_full), np.empty((tb.shape[0], 6, tb_t.shape[1]))
 bij_les_rot = np.empty_like((bij_les_full))
 for i in range(len(sij)):
-    u_rot[i] = np.dot(rotij_z, u[i])
-    grad_u_rot[i] = rotij_z @ (grad_u[i] @ rotij_z.T)
-    grad_k_rot[i] = np.dot(rotij_z, grad_k[i])
-    grad_p_rot[i] = np.dot(rotij_z, grad_p[i])
-    sij_rot[i] = rotij_z @ (sij_full[i] @ rotij_z.T)
-    rij_rot[i] = rotij_z @ (rij_full[i] @ rotij_z.T)
-    bij_les_rot[i] = rotij_z @ (bij_les_full[i] @ rotij_z.T)
+    u_rot[i] = np.dot(rotij, u[i])
+    grad_u_rot[i] = rotij @ (grad_u[i] @ rotij.T)
+    grad_k_rot[i] = np.dot(rotij, grad_k[i])
+    grad_p_rot[i] = np.dot(rotij, grad_p[i])
+    sij_rot[i] = rotij @ (sij_full[i] @ rotij.T)
+    rij_rot[i] = rotij @ (rij_full[i] @ rotij.T)
+    bij_les_rot[i] = rotij @ (bij_les_full[i] @ rotij.T)
     # For Tij, go through every basis too
     for j in range(tb_t.shape[1]):
-        tb_t_rot[i, j] = rotij_z @ (tb_t_full[i, j] @ rotij_z.T)
+        tb_t_rot[i, j] = rotij @ (tb_t_full[i, j] @ rotij.T)
 
 # Collapse matrix form from 3 x 3 to 9 x 1
 tb_t_rot = tb_t_rot.reshape((tb_t.shape[0], tb_t.shape[1], 9))
@@ -240,10 +250,10 @@ y_pred_test_rot, y_pred_train_rot = expandSymmetricTensor(y_pred_test_rot), expa
 y_pred_test_rot, y_pred_train_rot = y_pred_test_rot.reshape((-1, 3, 3)), y_pred_train_rot.reshape((-1, 3, 3))
 y_pred_test, y_pred_train = np.empty_like(y_pred_test_rot), np.empty_like(y_pred_train_rot)
 for i in range(len(y_pred_test_rot)):
-    y_pred_test[i] = rotij_z.T @ (y_pred_test_rot[i] @ rotij_z)
+    y_pred_test[i] = rotij.T @ (y_pred_test_rot[i] @ rotij)
 
 for i in range(len(y_pred_train_rot)):
-    y_pred_train[i] = rotij_z.T @ (y_pred_train_rot[i] @ rotij_z)
+    y_pred_train[i] = rotij.T @ (y_pred_train_rot[i] @ rotij)
 
 y_pred_test, y_pred_train = y_pred_test.reshape((-1, 9)), y_pred_train.reshape((-1, 9))
 y_pred_test, y_pred_train = contractSymmetricTensor(y_pred_test), contractSymmetricTensor(y_pred_train)
@@ -286,15 +296,18 @@ print('\nFinished interpolating mesh data for bij in {:.4f} s'.format(t1 - t0))
 """
 Plotting
 """
+figdir = case.resultPaths[time] + 'RotationInvariance/' + estimator_name
+os.makedirs(figdir, exist_ok=True)
 # rgb_b2ry_train_mesh = ndimage.rotate(rgb_bary_train_mesh, 90)
 rgb_bary_pred_test_mesh = ndimage.rotate(rgb_bary_pred_test_mesh, 90)
 rgb_bary_pred_train_mesh = ndimage.rotate(rgb_bary_pred_train_mesh, 90)
-xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
+xlabel, ylabel = ('$\bm{S}^2$', r'$y$ [m]')
 geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
-figname = 'barycentric_predtest_rot_seed' + str(seed)
-bary_map = BaseFigure((None,), (None,), name=figname, xLabel=xlabel,
-                      yLabel=ylabel, save=save_fig, show=show,
-                      figDir=case.resultPaths[time])
+figname = 'barycentric_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z)
+bary_map = BaseFigure((None,), (None,), name=figname, xlabel=xlabel,
+                      ylabel=ylabel, save=save_fig, show=show,
+                      figdir=case.resultPaths[time],
+                      figheight_multiplier=0.7)
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=bary_map.gray)
 # patch is considered "a single artist" so have to make copy to use more than once
@@ -306,63 +319,66 @@ patches = iter(patches)
 extent_test = (ccx_test.min(), ccx_test.max(), ccy_test.min(), ccy_test.max())
 extent_train = (ccx_train.min(), ccx_train.max(), ccy_train.min(), ccy_train.max())
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_pred_test_mesh, origin='upper', aspect='equal', extent=extent_test)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_pred_test_mesh, origin='upper', aspect='equal', extent=extent_test)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + figname + '.' + ext, dpi=dpi)
+    plt.savefig(figdir + '/' + figname + '.' + ext, dpi=dpi)
 
 plt.close()
 
-bary_map.name = 'barycentric_predtrain_rot_seed' + str(seed)
+bary_map.name = 'barycentric_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z)
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_pred_train_mesh, origin='upper', aspect='equal', extent=extent_train)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_pred_train_mesh, origin='upper', aspect='equal', extent=extent_train)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
+    plt.savefig(figdir + '/' + bary_map.name + '.' + ext, dpi=dpi)
 
 plt.close()
 
-fignames_predtest = ('b11_predtest_rot_seed' + str(seed),
-                     'b12_predtest_rot_seed' + str(seed),
-                     'b13_predtest_rot_seed' + str(seed),
-                     'b22_predtest_rot_seed' + str(seed),
-                     'b23_predtest_rot_seed' + str(seed),
-                     'b33_predtest_rot_seed' + str(seed))
-fignames_predtrain = ('b11_predtrain_rot_seed' + str(seed),
-                      'b12_predtrain_rot_seed' + str(seed),
-                      'b13_predtrain_rot_seed' + str(seed),
-                      'b22_predtrain_rot_seed' + str(seed),
-                      'b23_predtrain_rot_seed' + str(seed),
-                      'b33_predtrain_rot_seed' + str(seed))
-zlabels = (r'$b_{11} [-]$', r'$b_{12} [-]$', '$b_{13} [-]$', '$b_{22} [-]$', '$b_{23} [-]$', '$b_{33} [-]$')
+fignames_predtest = ('b11_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                     'b12_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                     'b13_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                     'b22_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                     'b23_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                     'b33_predtest_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z))
+fignames_predtrain = ('b11_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                      'b12_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                      'b13_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                      'b22_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                      'b23_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z),
+                      'b33_predtrain_rot_{0}_{1}_{2}'.format(rot_x, rot_y, rot_z))
+zlabels = ('$b_{11}$ [-]', '$b_{12}$ [-]', '$b_{13}$ [-]', '$b_{22}$ [-]', '$b_{23}$ [-]', '$b_{33}$ [-]')
+zlabels_pred = ('$\hat{b}_{11}$ [-]', '$\hat{b}_{12}$ [-]', '$\hat{b}_{13}$ [-]', '$\hat{b}_{22}$ [-]', '$\hat{b}_{23}$ [-]', '$\hat{b}_{33}$ [-]')
 # Go through eveyr bij component and plot
 for i in range(len(zlabels)):
-    bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xLabel=xlabel,
-                                     yLabel=ylabel, zlabel=zlabels[i],
+    bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xlabel=xlabel,
+                                     ylabel=ylabel, val_label=zlabels_pred[i],
                                      save=save_fig, show=show,
-                                     figDir=case.resultPaths[time],
-                                     figWidth='1/3',
-                                     zlim=bijlims,
+                                     figdir=figdir,
+                                     figwidth='1/3',
+                                     val_lim=bijlims,
                                      rotate_img=True,
-                                     extent=extent_test)
+                                     extent=extent_test,
+                                     figheight_multiplier=figheight_multiplier)
     bij_predtest_plot.initializeFigure()
     bij_predtest_plot.plotFigure()
-    bij_predtest_plot.axes[0].add_patch(next(patches))
+    bij_predtest_plot.axes.add_patch(next(patches))
     bij_predtest_plot.finalizeFigure()
 
-    bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xLabel=xlabel,
-                                      yLabel=ylabel, zlabel=zlabels[i],
+    bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xlabel=xlabel,
+                                      ylabel=ylabel, val_label=zlabels_pred[i],
                                       save=save_fig, show=show,
-                                      figDir=case.resultPaths[time],
-                                      figWidth='1/3',
-                                      zlim=bijlims,
+                                      figdir=figdir,
+                                      figwidth='1/3',
+                                      val_lim=bijlims,
                                       rotate_img=True,
-                                      extent=extent_test)
+                                      extent=extent_test,
+                                      figheight_multiplier=figheight_multiplier)
     bij_predtrain_plot.initializeFigure()
     bij_predtrain_plot.plotFigure()
-    bij_predtrain_plot.axes[0].add_patch(next(patches))
+    bij_predtrain_plot.axes.add_patch(next(patches))
     bij_predtrain_plot.finalizeFigure()

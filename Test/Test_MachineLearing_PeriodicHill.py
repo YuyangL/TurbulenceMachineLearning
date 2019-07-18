@@ -68,7 +68,7 @@ split_train_test_data = False  # bool
 fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
-train_model, save_estimator = True, True  # bool
+train_model, save_estimator = False, True  # bool
 # Name of the ML estimator
 estimator_name = 'tbdt'  # "TBDT"/"tbdt"/"TBRF"/"tbrf"/"TBAB"/"tbab"/"TBRC"/"tbrc"
 scaler = None  # "robust", "standard" or None
@@ -487,10 +487,10 @@ rgb_bary_pred_train_mesh = ndimage.rotate(rgb_bary_pred_train_mesh, 90)
 xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
 geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
 figname = 'barycentric_periodichill_test_seed' + str(seed)
-bary_map = BaseFigure((None,), (None,), name=figname, xLabel=xlabel,
-                      yLabel=ylabel, save=save_fig, show=show,
-                      figDir=case.resultPaths[time],
-                      figHeightMultiplier=0.75)
+bary_map = BaseFigure((None,), (None,), name=figname, xlabel=xlabel,
+                      ylabel=ylabel, save=save_fig, show=show,
+                      figdir=case.resultPaths[time],
+                      figheight_multiplier=0.7)
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=bary_map.gray)
 # patch is considered "a single artist" so have to make copy to use more than once
@@ -502,10 +502,10 @@ patches = iter(patches)
 extent_test = (ccx_test.min(), ccx_test.max(), ccy_test.min(), ccy_test.max())
 extent_train = (ccx_train.min(), ccx_train.max(), ccy_train.min(), ccy_train.max())
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_test_mesh, origin='upper', aspect='equal', extent=extent_test)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_test_mesh, origin='upper', aspect='equal', extent=extent_test)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
     plt.savefig(case.resultPaths[time] + figname + '.' + ext, dpi=dpi)
 
@@ -513,10 +513,10 @@ plt.close()
 
 bary_map.name = 'barycentric_periodichill_pred_test_seed' + str(seed)
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_pred_test_mesh, origin='upper', aspect='equal', extent=extent_test)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_pred_test_mesh, origin='upper', aspect='equal', extent=extent_test)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
     plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
@@ -524,10 +524,10 @@ plt.close()
 
 bary_map.name = 'barycentric_periodichill_train_seed' + str(seed)
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_train_mesh, origin='upper', aspect='equal', extent=extent_train)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_train_mesh, origin='upper', aspect='equal', extent=extent_train)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
     plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
@@ -535,10 +535,10 @@ plt.close()
 
 bary_map.name = 'barycentric_periodichill_pred_train_seed' + str(seed)
 bary_map.initializeFigure()
-bary_map.axes[0].imshow(rgb_bary_pred_train_mesh, origin='upper', aspect='equal', extent=extent_train)
-bary_map.axes[0].set_xlabel(bary_map.xLabel)
-bary_map.axes[0].set_ylabel(bary_map.yLabel)
-bary_map.axes[0].add_patch(next(patches))
+bary_map.axes.imshow(rgb_bary_pred_train_mesh, origin='upper', aspect='equal', extent=extent_train)
+bary_map.axes.set_xlabel(bary_map.xlabel)
+bary_map.axes.set_ylabel(bary_map.ylabel)
+bary_map.axes.add_patch(next(patches))
 if save_fig:
     plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
@@ -570,62 +570,63 @@ fignames_train = ('b11_periodichill_train_seed' + str(seed),
                  'b33_periodichill_train_seed' + str(seed))
 zlabels = ('$b_{11}$ [-]', '$b_{12}$ [-]', '$b_{13}$ [-]', '$b_{22}$ [-]', '$b_{23}$ [-]', '$b_{33}$ [-]')
 zlabels_pred = ('$\hat{b}_{11}$ [-]', '$\hat{b}_{12}$ [-]', '$\hat{b}_{13}$ [-]', '$\hat{b}_{22}$ [-]', '$\hat{b}_{23}$ [-]', '$\hat{b}_{33}$ [-]')
+figheight_multiplier = 1.1
 # Go through every bij component and plot
 for i in range(len(zlabels)):
-    bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xLabel=xlabel,
-                                     yLabel=ylabel, zLabel=zlabels_pred[i],
+    bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xlabel=xlabel,
+                                     ylabel=ylabel, val_label=zlabels_pred[i],
                                      save=save_fig, show=show,
-                                     figDir=case.resultPaths[time],
-                                     figWidth='1/3',
-                                     zlim=bijlims,
+                                     figdir=case.resultPaths[time],
+                                     figwidth='1/3',
+                                     val_lim=bijlims,
                                      rotate_img=True,
                                      extent=extent_test,
-                                     figHeightMultiplier=0.75)
+                                     figheight_multiplier=figheight_multiplier)
     bij_predtest_plot.initializeFigure()
     bij_predtest_plot.plotFigure()
-    bij_predtest_plot.axes[0].add_patch(next(patches))
+    bij_predtest_plot.axes.add_patch(next(patches))
     bij_predtest_plot.finalizeFigure()
 
-    bij_test_plot = Plot2D_Image(val=y_test_mesh[:, :, i], name=fignames_test[i], xLabel=xlabel,
-                                     yLabel=ylabel, zLabel=zlabels[i],
+    bij_test_plot = Plot2D_Image(val=y_test_mesh[:, :, i], name=fignames_test[i], xlabel=xlabel,
+                                     ylabel=ylabel, val_label=zlabels[i],
                                      save=save_fig, show=show,
-                                     figDir=case.resultPaths[time],
-                                     figWidth='1/3',
-                                     zlim=bijlims,
+                                     figdir=case.resultPaths[time],
+                                     figwidth='1/3',
+                                     val_lim=bijlims,
                                      rotate_img=True,
                                      extent=extent_test,
-                                    figHeightMultiplier=0.75)
+                                    figheight_multiplier=figheight_multiplier)
     bij_test_plot.initializeFigure()
     bij_test_plot.plotFigure()
-    bij_test_plot.axes[0].add_patch(next(patches))
+    bij_test_plot.axes.add_patch(next(patches))
     bij_test_plot.finalizeFigure()
 
-    bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xLabel=xlabel,
-                                     yLabel=ylabel, zLabel=zlabels_pred[i],
+    bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xlabel=xlabel,
+                                     ylabel=ylabel, val_label=zlabels_pred[i],
                                      save=save_fig, show=show,
-                                     figDir=case.resultPaths[time],
-                                     figWidth='1/3',
-                                     zlim=bijlims,
+                                     figdir=case.resultPaths[time],
+                                     figwidth='1/3',
+                                     val_lim=bijlims,
                                      rotate_img=True,
                                      extent=extent_test,
-                                      figHeightMultiplier=0.75)
+                                      figheight_multiplier=figheight_multiplier)
     bij_predtrain_plot.initializeFigure()
     bij_predtrain_plot.plotFigure()
-    bij_predtrain_plot.axes[0].add_patch(next(patches))
+    bij_predtrain_plot.axes.add_patch(next(patches))
     bij_predtrain_plot.finalizeFigure()
 
-    bij_train_plot = Plot2D_Image(val=y_train_mesh[:, :, i], name=fignames_train[i], xLabel=xlabel,
-                                     yLabel=ylabel, zLabel=zlabels[i],
+    bij_train_plot = Plot2D_Image(val=y_train_mesh[:, :, i], name=fignames_train[i], xlabel=xlabel,
+                                     ylabel=ylabel, val_label=zlabels[i],
                                      save=save_fig, show=show,
-                                     figDir=case.resultPaths[time],
-                                     figWidth='1/3',
-                                     zlim=bijlims,
+                                     figdir=case.resultPaths[time],
+                                     figwidth='1/3',
+                                     val_lim=bijlims,
                                      rotate_img=True,
                                      extent=extent_test,
-                                    figHeightMultiplier=0.75)
+                                    figheight_multiplier=figheight_multiplier)
     bij_train_plot.initializeFigure()
     bij_train_plot.plotFigure()
-    bij_train_plot.axes[0].add_patch(next(patches))
+    bij_train_plot.axes.add_patch(next(patches))
     bij_train_plot.finalizeFigure()
 
 
@@ -636,7 +637,7 @@ for i in range(len(zlabels)):
     #                            figWidth='1/3')
     # bij_predtest_plot.initializeFigure()
     # bij_predtest_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
-    # bij_predtest_plot.axes[0].add_patch(next(patches))
+    # bij_predtest_plot.axes.add_patch(next(patches))
     # bij_predtest_plot.finalizeFigure()
     #
     # bij_test_plot = Plot2D(ccx_test_mesh, ccy_test_mesh, z2D=y_test_mesh[:, :, i], name=fignames_test[i], xLabel=xlabel,
@@ -646,7 +647,7 @@ for i in range(len(zlabels)):
     #                            figWidth='1/3')
     # bij_test_plot.initializeFigure()
     # bij_test_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
-    # bij_test_plot.axes[0].add_patch(next(patches))
+    # bij_test_plot.axes.add_patch(next(patches))
     # bij_test_plot.finalizeFigure()
     #
     # bij_predtrain_plot = Plot2D(ccx_train_mesh, ccy_train_mesh, z2D=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i],
@@ -657,7 +658,7 @@ for i in range(len(zlabels)):
     #                            figWidth='1/3')
     # bij_predtrain_plot.initializeFigure()
     # bij_predtrain_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
-    # bij_predtrain_plot.axes[0].add_patch(next(patches))
+    # bij_predtrain_plot.axes.add_patch(next(patches))
     # bij_predtrain_plot.finalizeFigure()
     #
     # bij_train_plot = Plot2D(ccx_train_mesh, ccy_train_mesh, z2D=y_train_mesh[:, :, i], name=fignames_train[i], xLabel=xlabel,
@@ -667,7 +668,7 @@ for i in range(len(zlabels)):
     #                        figWidth='1/3')
     # bij_train_plot.initializeFigure()
     # bij_train_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
-    # bij_train_plot.axes[0].add_patch(next(patches))
+    # bij_train_plot.axes.add_patch(next(patches))
     # bij_train_plot.finalizeFigure()
 
 
