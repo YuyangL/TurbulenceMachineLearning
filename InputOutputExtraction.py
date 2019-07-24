@@ -625,7 +625,7 @@ if process_slices:
         # y is LES bij shape (n_samples, 6)
         y = bij
         # Prepare GS samples of specified size
-        list_data_test, _ = splitTrainTestDataList([list_slicecoor[slice_type][:2], x, y, tb], test_fraction=0., seed=seed,
+        list_data_test, _ = splitTrainTestDataList([list_slicecoor[slice_type][:, :2], x, y, tb], test_fraction=0., seed=seed,
                                                  sample_size=None)
         if save_fields:
             case.savePickleData(time, (list_data_test,), 'list_data_test_' + slice_type)
