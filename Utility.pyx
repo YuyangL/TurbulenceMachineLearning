@@ -5,7 +5,7 @@
 # cython: cdivision = True
 import numpy as np
 cimport numpy as np
-from libc.math cimport fmax, ceil, sqrt, cbrt
+from libc.math cimport fmax, ceil, sqrt, cbrt, sin, cos
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=None,
                                 double mesh_target=1e4, str interp="linear", double fill_val=np.nan):
@@ -246,6 +246,82 @@ cpdef np.ndarray reverseOldGridShape(np.ndarray arr, tuple shape_old, bint infer
 
     print('\nArray reversed from shape ' + str(shape_arr) + ' to ' + str(np.shape(arr)))
     return arr
+
+
+cpdef np.ndarray rotateData(np.ndarray ndarr, double anglex=0., double angley=0., double anglez=0., tuple matrix_shape=(3, 3)):
+    """
+    Rotate nD array of matrices or vectors. Matrices must not be flattened.
+    If infer_matrix_form, the last few D will be checked it matches provided matrix_shape. 
+    The first remaining D are collapsed to 1 so that ndarr has shape (n_samples, vector size) or (n_samples, matrix_shape).
+    If matrix_shape is 3D, then only the last 2D are considered for rotation. 
+    E.g. Tensor basis Tij of shape (n_samples, n_bases, 3, 3) should have matrix_shape = (n_bases, 3, 3) to rotate properly.
+    
+    :param ndarr: nD array to rotate.
+    :type ndarr: ndarray[mesh grid / n_samples x vector size / matrix_shape]
+    :param anglex: Angle to rotate around x axis in degree or radian.
+    :type anglex: double, optional (default=0.)
+    :param angley: Angle to rotate around y axis in degree or radian.
+    :type angley: double, optional (default=0.)
+    :param anglez: Angle to rotate around z axis in degree or radian.
+    :type anglez: double, optional (default=0.)
+    :param matrix_shape: The shape to infer as matrix for rotation. 
+    If matrix_shape is 3D, only the last 2D are rotated while the 1st D of matrix_shape is looped.
+    E.g. to rotate tensor basis Tij of shape (n_samples / mesh grid, n_bases, 3, 3), matrix_shape should be (n_bases, 3, 3). 
+    :type matrix_shape: 2/3D tuple, optional (default=(3, 3)) 
+    
+    :return: Rotated 2/3/4D array of vectors or matrices
+    :rtype: ndarray[n_samples x vector size / matrix_shape]
+    """
+    cdef np.ndarray[np.float_t, ndim=2] rotij_x, rotij_y, rotij_z, qij
+    cdef unsigned int i, j
+
+    # Automatically detect wheter angles are in radian or degree
+    if anglex > 2.*np.pi: anglex = anglex/180.*np.pi
+    if angley > 2.*np.pi: angley = angley/180.*np.pi
+    if anglez > 2.*np.pi: anglez = anglez/180.*np.pi
+    # Collapse mesh grid and infer whether it's a matrix or vector
+    ndarr, shape_old = collapseMeshGridFeatures(ndarr, True, matrix_shape, collapse_matrix=False)
+    # Rotation matrices in x, y, z
+    rotij_x, rotij_y, rotij_z = np.zeros((3, 3)), np.zeros((3, 3)), np.zeros((3, 3))
+    # Qx = |1 0    0  |
+    #      |0 cos -sin|
+    #      |0 sin  cos|
+    rotij_x[0, 0] = 1.
+    rotij_x[1, 1] = rotij_x[2, 2] = cos(anglex)
+    rotij_x[1, 2] = -sin(anglex)
+    rotij_x[2, 1] = -rotij_x[1, 2]
+    # Qy = | cos 0 sin|
+    #      | 0   1 0  |
+    #      |-sin 0 cos|
+    rotij_y[0, 0] = rotij_y[2, 2] = cos(angley)
+    rotij_y[0, 2] = sin(angley)
+    rotij_y[1, 1] = 1.
+    rotij_y[2, 0] = -rotij_y[0, 2]
+    # Qz = |cos -sin 0|
+    #      |sin  cos 0|
+    #      |0    0   1|
+    rotij_z[0, 0] = rotij_z[1, 1] = cos(anglez)
+    rotij_z[0, 1] = -sin(anglez)
+    rotij_z[1, 0] = -rotij_z[0, 1]
+    rotij_z[2, 2] = 1.
+    # Combined Qij
+    qij = rotij_z @ (rotij_y @ rotij_x)
+    # Go through each sample
+    for i in range(ndarr.shape[0]):
+        # For matrices, do Qij*matrix*Qij^T
+        if len(np.shape(ndarr)) > 2:
+            # If matrix_shape was 3D, e.g. (n_bases, 3, 3) for Tij, then loop through matrix_shape[0] too
+            if len(np.shape(ndarr)) == 3:
+                for j in range(ndarr.shape[1]):
+                    ndarr[i, j] = qij @ (ndarr[i, j] @ qij.T)
+
+            else:
+                ndarr[i] = qij @ (ndarr[i] @ qij.T)
+        # Else for vectors, do Qij*vector
+        else:
+            ndarr[i] = np.dot(qij, ndarr[i])
+
+    return ndarr
 
 
 

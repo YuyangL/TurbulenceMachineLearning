@@ -92,7 +92,9 @@ def setupDecisionTreeGridSearchCV(gs_max_features=(1.,), gs_min_samples_split=(2
                              verbose=gscv_verbose,
                              scoring=None,
                              refit=refit,
-                             return_train_score=return_train_score)
+                             return_train_score=return_train_score,
+                             # Mean score of folds is not sample weighted
+                             iid=False)
 
     return tree_gscv, tree, tuneparams
 
@@ -197,7 +199,9 @@ def setupAdaBoostGridSearch(n_estimators=50, gs_max_features=(1/3.,), gs_max_dep
                            verbose=gscv_verbose,
                            scoring=None,
                            refit=refit,
-                           return_train_score=return_train_score)
+                           return_train_score=return_train_score,
+                           # Mean score of folds is not sample weighted
+                           iid=False)
 
     return ab_gscv, ab, tuneparams
 

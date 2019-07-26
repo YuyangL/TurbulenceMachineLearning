@@ -11,7 +11,7 @@ User Inputs
 casedir = 'ALM_N_H_OneTurb'
 gsdata_name = 'list_data_GS_Confined'
 traindata_name = 'list_data_train_Confined'
-confined_zone = '2'
+confined_zone = '1'
 estimators = ('TBDT', 'TBRF', 'TBAB')  # str, list/tuple(str)
 
 
@@ -55,7 +55,7 @@ rf_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002),
                  median_predict=True,
                  bij_novelty='excl')
 # For TBAB only
-ab_kwargs = dict(gs_max_depth=(5, 10, 20),
+ab_kwargs = dict(gs_max_depth=(5, 10, 15),
                  gs_learning_rate=(0.1, 0.2, 0.4),
                  min_samples_split=0.002,
                  n_estimators=100,
@@ -136,7 +136,7 @@ for estimator in estimators:
         # This is a GSCV object
         regressor_gs.fit(x_gs, y_gs, tb=tb_gs)
         # Save the GSCV for further inspection
-        dump(regressor_gs, resdir + 'GSCV_' + estimator + '.joblib')
+        dump(regressor_gs, resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
         # This is the actual estimator, setting the best found hyper-parameters to it
         regressor.set_params(**regressor_gs.best_params_)
     else:
@@ -151,7 +151,7 @@ for estimator in estimators:
     t0 = t.time()
     regressor.fit(x_train, y_train, tb=tb_train)
     # Save estimator
-    dump(regressor, resdir + estimator + '.joblib')
+    dump(regressor, resdir + estimator + '_Confined' + str(confined_zone) + '.joblib')
     t1 = t.time()
     print('\nFinished {} training in {:.4f} min'.format(estimator, (t1 - t0)/60.))
 
