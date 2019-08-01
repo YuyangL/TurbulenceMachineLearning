@@ -268,6 +268,192 @@ cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor):
     return tensor_compact
 
 
+cpdef tuple getStrainAndRotationRateTensor(np.ndarray grad_u, np.ndarray tke=None,  np.ndarray eps=None, double cap=1e9):
+    """
+    Calculate strain rate tensor sij as well as rotation rate tensor rij, given velocity gradient grad_u.
+    If TKE tke and energy dissipaton rate eps are both provided, sij and rij are non-dimensionalized.
+    If cap is provided, sij and rij magnitudes are capped to cap.
+    
+    :param grad_u: Velocity gradient
+    :type grad_u: ndarray[mesh grid / n_samples x 3 x 3] or ndarray[mesh grid / n_samples x 9]
+    :param tke: TKE, to non-dimensionalize Sij and Rij, along with epsilon.
+    If None, no non-dimensionalization is done.
+    :type tke: ndarray[mesh grid / n_samples x 0/1] or None, optional (default=None)
+    :param eps: Turbulent energy dissipation rate, to non-dimensionalize Sij and Rij, along with TKE.
+    If None, no non-dimensionalization is done.
+    :type eps: ndarray[mesh grid / n_samples x 0/1] or None, optional (default=None)
+    :param cap: Sij and Rij magnitude cap.
+    :type cap: float, optional (default=1e9)
+    
+    :return: Strain and rotation rate tensor Sij and Rij. Only the 6 unique components of symmetric tensor Sij is returned.
+    :rtype: ndarray[n_samples x 6], ndarray[n_samples x 9]
+    """
+    cdef list ij_uniq, ii6, ii9, ij_6to9
+    cdef np.ndarray[np.float_t] tke_eps, sij_i, rij_i
+    cdef np.ndarray[np.float_t, ndim=2] grad_u_i
+    cdef double maxsij, maxrij, minsij, minrij, progress
+    cdef unsigned int i
+    cdef unsigned int milestone = 25
+
+    print('\nCalculating strain and rotation rate tensor Sij and Rij...')
+    # Collapse mesh grid but don't collapse matrix form of (3, 3) to 9
+    grad_u, _ = collapseMeshGridFeatures(grad_u, collapse_matrix=False)
+    # Indices
+    ij_uniq = [0, 1, 2, 4, 5, 8]
+    ii6, ii9 = [0, 3, 5], [0, 4, 8]
+    ij_6to9 = [0, 1, 2, 1, 3, 4, 2, 4, 5]
+    # If either TKE or epsilon is None, no non-dimensionalization is done
+    if tke is None or eps is None:
+        tke = np.ones(grad_u.shape[0])
+        eps = np.ones(grad_u.shape[0])
+
+    # Cap epsilon to 1e-10 to avoid FPE, also assuming no back-scattering
+    eps[eps == 0.] = 1e-10
+    # Non-dimensionalization coefficient for strain and rotation rate tensor
+    tke_eps = tke.ravel()/eps.ravel()
+    # Sij is strain rate tensor, Rij is rotation rate tensor
+    # Sij is symmetric tensor, thus 6 unique components, while Rij is anti-symmetric and 9 unique components
+    sij = np.empty((grad_u.shape[0], 6))
+    rij = np.empty((grad_u.shape[0], 9))
+    # Go through each point
+    for i in range(grad_u.shape[0]):
+        grad_u_i = grad_u[i].reshape((3, 3)) if len(np.shape(grad_u)) == 2 else grad_u[i]
+        # Basically Sij = 0.5TKE/epsilon*(grad_u_i + grad_u_j) that has 0 trace
+        sij_i = (tke_eps[i]*0.5*(grad_u_i + grad_u_i.T)).ravel()
+
+        # Basically Rij = 0.5TKE/epsilon*(grad_u_i - grad_u_j) that has 0 in the diagonal
+        rij_i = (tke_eps[i]*0.5*(grad_u_i - grad_u_i.T)).ravel()
+        sij[i] = sij_i[ij_uniq]
+        rij[i] = rij_i
+
+        # Gauge progress
+        progress = float(i)/(grad_u.shape[0] + 1)*100.
+        if progress >= milestone:
+            printf(' %d %%... ', milestone)
+            milestone += 25
+
+    # Maximum and minimum
+    maxsij, maxrij = np.max(sij.ravel()), np.max(rij.ravel())
+    minsij, minrij = np.min(sij.ravel()), np.min(rij.ravel())
+    print(' Max of Sij is ' + str(maxsij) + ', and of Rij is ' + str(maxrij) + ' capped to ' + str(cap))
+    print(' Min of Sij is ' + str(minsij) + ', and of Rij is ' + str(minrij)  + ' capped to ' + str(-cap))
+    sij[sij > cap], rij[rij > cap] = cap, cap
+    sij[sij < -cap], rij[rij < -cap] = -cap, -cap
+    # Because we enforced limits on Sij, we need to re-enforce trace of 0.
+    # Go through each point
+    if any((maxsij > cap, minsij < cap)):
+        for i in range(grad_u.shape[0]):
+            # Recall Sij is symmetric and has 6 unique components
+            sij[i, ii6] -=  ((1/3.*np.eye(3)*np.trace(sij[i, ij_6to9].reshape((3, 3)))).ravel()[ii9])
+
+    return sij, rij
+
+
+cpdef np.ndarray[np.float_t, ndim=3] getInvariantBases(np.ndarray sij, np.ndarray rij, 
+                                                       bint quadratic_only=False, bint is_scale=True, bint zero_trace=False):
+    """
+    Calculate 4 or 10 invariant bases of shape (n_samples, n_outputs, n_bases) given strain rate tensor sij and rotation rate tensor rij.
+    If quadratic_only is True, only 4 bases will be calculated.
+    If is_scale is True, the bases will be divided by [1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000].
+    If zero_trace is True, check for 0 trace of tb and enforce it.
+    
+    :param sij: strain rate tensor
+    :type sij: ndarray[grid shape / n_samples x 6/9] or ndarray[grid shape / n_samples x 3 x 3]
+    :param rij: rotation rate tensor
+    :type rij: ndarray[grid shape / n_samples x 9] or ndarray[grid shape / n_samples x 3 x 3]
+    :param quadratic_only: True if only linear and quadratic terms are desired, n_bases = 4. False if full basis is desired, n_bases = 10.
+    :type quadratic_only: bool, optional (default=False)
+    :param is_scale: Whether scale Tij with [1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000].
+    :type is_scale: bool, optional (default=True)
+    :param zero_trace: Whether enforce 0 trace of Tij.
+    :type zero_trace: bool, optional (default=False)
+    
+    :return: Tij of shape (n_samples, 6, n_bases). 6 means taking the unique components of the symmetric tensor only.
+    :rtype: ndarray[n_samples x 6 x n_bases]
+    """
+    cdef list ij_uniq, ij_6to9, scale_factor
+    cdef unsigned int n_bases, i, j
+    cdef np.ndarray[np.float_t, ndim=3] tb
+    cdef np.ndarray[np.float_t, ndim=2] sij_i, rij_i, sijrij, rijsij, sijsij, rijrij
+    cdef unsigned int milestone = 10
+    cdef double progress
+
+    print('\nCalculating invariant bases Tij...')
+    # Ensure n_samples x 6 for Sij and n_samples x 9 for Rij
+    sij, _ = collapseMeshGridFeatures(sij)
+    rij, _ = collapseMeshGridFeatures(rij)
+    if sij.shape[1] == 9: sij = contractSymmetricTensor(sij)
+    # Indices
+    ij_uniq = [0, 1, 2, 4, 5, 8]
+    ij_6to9 = [0, 1, 2, 1, 3, 4, 2, 4, 5]
+    # If 3D flow, then 10 tensor bases; else if 2D flow, then 4 tensor bases
+    n_bases = 10 if not quadratic_only else 4
+    # Tensor bases is nPoint x nBasis x 3 x 3
+    # tb = np.zeros((Sij.shape[0], n_bases, 3, 3))
+    tb = np.empty((sij.shape[0], 6, n_bases))
+    # Go through each point
+    for i in range(sij.shape[0]):
+        # Sij only has 6 unique components, convert it to 9 using ij_6to9
+        sij_i = sij[i, ij_6to9].reshape((3, 3))
+        # Rij has 9 unique components already
+        rij_i = rij[i].reshape((3, 3))
+        # Convenient pre-computations
+        sijrij = sij_i @ rij_i
+        rijsij = rij_i @ sij_i
+        sijsij = sij_i @ sij_i
+        rijrij = rij_i @ rij_i
+        # 10 tensor bases for each point and each (unique) bij component
+        # 1: Sij
+        tb[i, :, 0] = sij_i.ravel()[ij_uniq]
+        # 2: SijRij - RijSij
+        tb[i, :, 1] = (sijrij - rijsij).ravel()[ij_uniq]
+        # 3: Sij^2 - 1/3I*tr(Sij^2)
+        tb[i, :, 2] = (sijsij - 1./3.*np.eye(3)*np.trace(sijsij)).ravel()[ij_uniq]
+        # 4: Rij^2 - 1/3I*tr(Rij^2)
+        tb[i, :, 3] = (rijrij - 1./3.*np.eye(3)*np.trace(rijrij)).ravel()[ij_uniq]
+        # If more than 4 bases
+        if not quadratic_only:
+            # 5: RijSij^2 - Sij^2Rij
+            tb[i, :, 4] = (rij_i @ sijsij - sij_i @ sijrij).ravel()[ij_uniq]
+            # 6: Rij^2Sij + SijRij^2 - 2/3I*tr(SijRij^2)
+            tb[i, :, 5] = (rij_i @ rijsij
+                           + sij_i @ rijrij
+                           - 2./3.*np.eye(3)*np.trace(sij_i @ rijrij)).ravel()[ij_uniq]
+            # 7: RijSijRij^2 - Rij^2SijRij
+            tb[i, :, 6] = (rijsij @ rijrij - rijrij @ sijrij).ravel()[ij_uniq]
+            # 8: SijRijSij^2 - Sij^2RijSij
+            tb[i, :, 7] = (sijrij @ sijsij - sijsij @ rijsij).ravel()[ij_uniq]
+            # 9: Rij^2Sij^2 + Sij^2Rij^2 - 2/3I*tr(Sij^2Rij^2)
+            tb[i, :, 8] = (rijrij @ sijsij
+                           + sijsij @ rijrij
+                           - 2./3.*np.eye(3)*np.trace(sijsij @ rijrij)).ravel()[ij_uniq]
+            # 10: RijSij^2Rij^2 - Rij^2Sij^2Rij
+            tb[i, :, 9] = ((rij_i @ sijsij) @ rijrij
+                           - (rij_i @ rijsij) @ sijrij).ravel()[ij_uniq]
+
+        # If enforce zero trace for anisotropy for each basis
+        if zero_trace:
+            for j in range(n_bases):
+                # Recall tb is shape (n_samples, 6, n_bases)
+                tb[i, :, j] -= (1./3.*np.eye(3)*np.trace(tb[i, ij_6to9, j].reshape((3, 3)))).ravel()[ij_uniq]
+
+        # Gauge progress
+        progress = float(i)/(sij.shape[0] + 1)*100.
+        if progress >= milestone:
+            printf(' %d %%... ', milestone)
+            milestone += 10
+
+    # Scale down to promote convergence
+    if is_scale:
+        # Using tuple gives Numba error
+        scale_factor = [1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000]
+        # Go through each basis
+        for j in range(1, n_bases):
+            tb[:, :, j] /= scale_factor[j]
+
+    return tb
+
+
 
 
 # -----------------------------------------------------

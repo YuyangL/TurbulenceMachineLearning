@@ -20,14 +20,14 @@ test_casename = 'ALM_N_H_OneTurb'  # str
 casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
 # Slice names for prediction and visualization
-slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-              'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine', 'sevenDdownstreamTurbine')
+slicenames = 'auto'  # str
 time = 'last'  # str/float/int or 'last'
 seed = 123  # int
 # Interpolation method when interpolating mesh grids
 interp_method = "nearest"  # "nearest", "linear", "cubic"
 # The case folder name storing the estimator
-estimator_folder = "ML/TBDT"  # str
+estimator_folder = "ML/TBRF"  # str
+confinezone = '2'  # str
 # Feature set string
 fs = 'grad(TKE)_grad(p)'  # 'grad(TKE)_grad(p)', 'grad(TKE)', 'grad(p)', None
 realize_iter = 0  # int
@@ -37,9 +37,11 @@ realize_iter = 0  # int
 Plot Settings
 """
 figfolder = 'Result'
+# Field rotation for vertical slices, rad or deg
+fieldrot = 30.  # float
 # When plotting, the mesh has to be uniform by interpolation, specify target size
-uniform_mesh_size = 1e6  # int
-figheight_multiplier = 1.2  # float
+uniform_mesh_size = 2e6  # int
+figheight_multiplier = 1.  # float
 # Limit for bij plot
 bijlims = (-1/2., 2/3.)  # (float, float)
 # Save figures and show figures
@@ -55,12 +57,48 @@ Process User Inputs, Don't Change
 if time == 'last':
     if test_casename == 'ALM_N_H_ParTurb':
         time = '22000.0918025'
+        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                               'sevenDdownstreamTurbines')
+
+    elif test_casename == 'ALM_N_L_ParTurb':
+        time = '23000.105'
+        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                               'sevenDdownstreamTurbines')
+
     elif test_casename == 'ALM_N_H_OneTurb':
-        time = '24995.0788025'
+        time = '24995.0438025'
+        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
+                                               'sevenDdownstreamTurbine')
+
+    elif test_casename == 'ALM_N_H_SeqTurb':
+        time = '25000.1288025'
+        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
+                                               'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
+                                               'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
+                                               'sixDdownstreamTurbineTwo')
+
+    elif test_casename == 'ALM_N_L_SeqTurb':
+        time = '23000.17'
+        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
+                                               'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
+                                               'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
+                                               'sixDdownstreamTurbineTwo')
+
+    elif test_casename == 'ALM_N_L_ParTurb_Yaw':
+        time = ''
+    elif test_casename == 'ALM_N_H_ParTurb_HiSpeed':
+        time = ''
 
 else:
     time = str(time)
-    
+
 estimator_fullpath = casedir + '/' + ml_casename + '/' + estimator_folder + '/'
 if 'TBRF' in estimator_folder or 'tbrf' in estimator_folder:
     estimator_name = 'TBRF'
@@ -71,6 +109,7 @@ elif 'TBAB' in estimator_folder or 'tbab' in estimator_folder:
 else:
     estimator_name = 'TBDT'
 
+estimator_name += '_Confined' + str(confinezone)
 # Average fields of interest for reading and processing
 if fs == 'grad(TKE)_grad(p)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
@@ -86,8 +125,7 @@ else:
               'grad_UAvg')
 
 uniform_mesh_size = int(uniform_mesh_size)
-# Ensemble name of fields useful for Machine Learning
-ml_field_ensemble_name = 'ML_Fields_' + ml_casename
+if fieldrot > 2*np.pi: fieldrot /= 180./np.pi
 # Initialize case object for both ML and test case
 # case_ml = FieldData(caseName=ml_casename, caseDir=casedir, times=time, fields=fields, save=False)
 case = FieldData(caseName=test_casename, caseDir=casedir, times=time, fields=fields, save=False)
@@ -112,7 +150,11 @@ for slicename in slicenames:
     ccy_test = list_data_test[0][:, 1]
     ccz_test = list_data_test[0][:, 2]
     # First axis is radial for vertical slice and x for horizontal slice
-    cc1_test = np.sqrt(ccx_test**2 + ccy_test**2) if slicedir == 'rz' else ccx_test
+    if slicedir == 'rz':
+        cc1_test = ccx_test/np.sin(fieldrot) if 'alongWind' not in slicename else ccx_test/np.cos(fieldrot)
+    else:
+        cc1_test = ccx_test
+
     # 2nd axis is z for vertical slices and y for horizontal
     cc2_test = ccz_test if slicedir == 'rz' else ccy_test
     del ccx_test, ccy_test, ccz_test
@@ -146,6 +188,8 @@ for slicename in slicenames:
     t0 = t.time()
     xy_bary_test, rgb_bary_test = getBarycentricMapData(eigval_test)
     xy_bary_pred_test, rgb_bary_pred_test = getBarycentricMapData(eigval_pred_test)
+    # Manually limit over range RGB values
+    rgb_bary_pred_test[rgb_bary_pred_test > 1.] = 1.
     t1 = t.time()
     print('\nFinished getting Barycentric map data in {:.4f} s'.format(t1 - t0))
 
@@ -224,7 +268,7 @@ for slicename in slicenames:
                                          ylabel=ylabel, val_label=bijlabels_pred[i],
                                          save=save_fig, show=show,
                                          figdir=figdir,
-                                         figwidth='1/3',
+                                         figwidth='half',
                                          val_lim=bijlims,
                                          rotate_img=True,
                                          extent=extent_test,
@@ -237,7 +281,7 @@ for slicename in slicenames:
                                      ylabel=ylabel, val_label=bijlabels[i],
                                      save=save_fig, show=show,
                                      figdir=figdir,
-                                     figwidth='1/3',
+                                     figwidth='half',
                                      val_lim=bijlims,
                                      rotate_img=True,
                                      extent=extent_test,

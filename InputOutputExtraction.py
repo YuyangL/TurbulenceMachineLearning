@@ -4,7 +4,7 @@ import sys
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
 from PostProcess_SliceData import SliceProperties
-from Preprocess.Tensor import processReynoldsStress, expandSymmetricTensor, contractSymmetricTensor
+from Preprocess.Tensor import processReynoldsStress, expandSymmetricTensor, contractSymmetricTensor, getStrainAndRotationRateTensor, getInvariantBases
 from Preprocess.Feature import getInvariantFeatureSet
 from Preprocess.FeatureExtraction import splitTrainTestDataList
 from Utility import rotateData
@@ -18,6 +18,7 @@ except ModuleNotFoundError:
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from warnings import warn
+import time as t
 
 """
 User Inputs, Anything Can Be Changed Here
@@ -33,12 +34,11 @@ interp_method = "nearest"  # "nearest", "linear", "cubic"
 # What keyword does the gradient fields contain
 grad_kw = 'grad'  # str
 # Slice names for prediction visualization
-slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-              'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine', 'sevenDdownstreamTurbine')
+slicenames = 'auto'
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
-process_raw_field, process_invariants = False, False  # bool
+process_raw_field, process_invariants = True, True  # bool
 # Flow field counter-clockwise rotation in x-y plane
 # so that tensor fields are parallel/perpendicular to flow direction
 rotz = np.pi/6  # float [rad]
@@ -75,27 +75,25 @@ save_fields, resultfolder = True, 'Result'  # bool; str
 Machine Learning Settings
 """
 # Whether to calculate features or directly read from pickle data
-calculate_features = False  # bool
+calculate_features = True  # bool
 # Whether to split train and test data or directly read from pickle data
-prep_train_test_data = False  # bool
+prep_train_test_data = True  # bool
 # Number of samples for Grid Search before training on all data
 # Also number of samples to do ML, if None, all samples are used for training
-samples_gs, samples_train = 10000, 2e6  # int; int, None
+samples_gs, samples_train = 10000, None  # int; int, None
 # Fraction of data for testing
 test_fraction = 0.  # float [0-1]
 # Feature set choice
 fs = 'grad(TKE)_grad(p)'  # 'grad(TKE)', 'grad(p)', 'grad(TKE)_grad(p)'
 # Use seed for reproducibility, set to None for no seeding
 seed = 123  # int, None
-# Fraction of data used for testing
-testSize = 0.2  # float
 
 
 """
 Visualization Settings
 """
 # Whether to process slices and save them for prediction visualization later
-process_slices = True  # bool
+process_slices = False  # bool
 
 
 """
@@ -115,50 +113,91 @@ else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
               'grad_UAvg')
 
-
 # Ensemble name of fields useful for Machine Learning
 mlfield_ensemble_name = 'ML_Fields_' + casename
 # Automatically select time if time is set to 'latest'
 if time == 'last':
     if casename == 'ALM_N_H_ParTurb':
         time = '22000.0918025'
+        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                               'sevenDdownstreamTurbines')
+
+    elif casename == 'ALM_N_L_ParTurb':
+        time = '23000.105'
+        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                               'sevenDdownstreamTurbines')
+
     elif casename == 'ALM_N_H_OneTurb':
-        time = '24995.0788025'
+        time = '24995.0438025'
+        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+         'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
+         'sevenDdownstreamTurbine')
+
+    elif casename == 'ALM_N_H_SeqTurb':
+        time = '25000.1638025'
+        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
+                                               'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
+                                               'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
+                                               'sixDdownstreamTurbineTwo')
+
+    elif casename == 'ALM_N_L_SeqTurb':
+        time = '23000.17'
+        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
+                                               'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
+                                               'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
+                                               'sixDdownstreamTurbineTwo')
+
+    elif casename == 'ALM_N_L_ParTurb_Yaw':
+        time = ''
+    elif casename == 'ALM_N_H_ParTurb_HiSpeed':
+        time = ''
+
 else:
     time = str(time)
 
 # Automatically define the confined domain region
 if confine and confinezone is not None:
     rotbox = np.pi/6
-    if casename == 'ALM_N_H_ParTurb':
-        # 1st refinement zone as confinement box
+    # For 2 parallel turbines 1 in north 1 in south
+    if 'ParTurb' in casename:
+        # 1st refinement zone as confinement box around southern turbine
         if confinezone == 'first':
             boxorig = (1074.225, 599.464, 0)
-            boxl, boxw, boxh = 1134, 1134, 405
+            boxl, boxw, boxh = 1134, 630, 405
             confinedfield_namesub += '1'
-        # 2nd refinement zone as confinement box
+        # 2nd refinement zone as confinement box around southern turbine
         elif confinezone == 'second':
             boxorig = (1120.344, 771.583, 0)
             boxl, boxw, boxh = 882, 378, 216
             confinedfield_namesub += '2'
-        elif confinezone == 'third':
-            boxorig = (1120.344, 771.583, 0)
-            boxl, boxw, boxh = 882, 378/2., 216
-            confinedfield_namesub += '2'
 
+    # For 1 turbine only
     elif casename == 'ALM_N_H_OneTurb':
         if confinezone == 'first':
             boxorig = (948.225, 817.702, 0)
             boxl, boxw, boxh = 1134, 630, 405
             confinedfield_namesub += '1'
         elif confinezone == 'second':
-            boxorig = (994.344, 989.583, 0)
+            boxorig = (994.344, 989.821, 0)
             boxl, boxw, boxh = 882, 378, 216
             confinedfield_namesub += '2'
-        elif confinezone == 'third':
-            boxorig = (994.344, 989.583, 0)
-            boxl, boxw, boxh = 882, 378/2., 216
-            confinedfield_namesub += '3'
+
+    # For 2 sequential turbines 1 behind the other
+    elif 'SeqTurb' in casename:
+        if confinezone == 'first':
+            boxorig = (948.225, 817.702, 0)
+            boxl, boxw, boxh = 1134, 630, 405
+            confinedfield_namesub += '1'
+        elif confinezone == 'second':
+            boxorig = (994.344, 989.821, 0)
+            boxl, boxw, boxh = 882, 378, 216
+            confinedfield_namesub += '2'
 
 if not confine:
     confinedfield_namesub = ''
@@ -263,18 +302,19 @@ if process_raw_field:
     
     """
     Rotate Fields by Given Rotation Angle
-    """   
-    if rotz != 0.:
-        grad_k = rotateData(grad_k, anglez=rotz)
-        # Switch to matrix form for grad(U) and rotate
-        grad_u = grad_u.reshape((-1, 3, 3))
-        grad_u = rotateData(grad_u, anglez=rotz).reshape((-1, 9))
-        u = rotateData(u, anglez=rotz)
-        grad_p = rotateData(grad_p, anglez=rotz)
-        # Extend symmetric tensor to full matrix form
-        uuprime2 = expandSymmetricTensor(uuprime2).reshape((-1, 3, 3))
-        uuprime2 = rotateData(uuprime2, anglez=rotz).reshape((-1, 9))
-        uuprime2 = contractSymmetricTensor(uuprime2)
+    """
+    # FIXME: uuprime2 probably wrong
+    # if rotz != 0.:
+    #     grad_k = rotateData(grad_k, anglez=rotz)
+    #     # Switch to matrix form for grad(U) and rotate
+    #     grad_u = grad_u.reshape((-1, 3, 3))
+    #     grad_u = rotateData(grad_u, anglez=rotz).reshape((-1, 9))
+    #     u = rotateData(u, anglez=rotz)
+    #     grad_p = rotateData(grad_p, anglez=rotz)
+    #     # Extend symmetric tensor to full matrix form
+    #     uuprime2 = expandSymmetricTensor(uuprime2).reshape((-1, 3, 3))
+    #     uuprime2 = rotateData(uuprime2, anglez=rotz).reshape((-1, 9))
+    #     uuprime2 = contractSymmetricTensor(uuprime2)
 
     if save_fields:
         k, epsilon = k.reshape((-1, 1)), epsilon.reshape((-1, 1))
@@ -306,9 +346,15 @@ if process_invariants:
     # Step 1: non-dimensional strain rate and rotation rate tensor Sij and Rij
     # epsilon is SGS epsilon as it's not necessary to use total epsilon
     # Sij shape (n_samples, 6); Rij shape (n_samples, 9)
-    sij, rij = case.getStrainAndRotationRateTensorField(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
+    t0 = t.time()
+    sij, rij = getStrainAndRotationRateTensor(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
+    t1 = t.time()
+    print('\nFinished Sij and Rij calculation in {:.4f} s'.format(t1 - t0))
     # Step 2: 10 invariant bases scaled Tij, shape (n_samples, 6, 10)
-    tb = case.getInvariantBasesField(sij, rij, quadratic_only=False, is_scale=True)
+    t0 = t.time()
+    tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=True)
+    t1 = t.time()
+    print('\nFinished Tij calculation in {:.4f} s'.format(t1 - t0))
     # Step 3: anisotropy tensor bij, shape (n_samples, 6)
     bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
     del uuprime2
@@ -373,10 +419,10 @@ if prep_train_test_data:
         case.savePickleData(time, (list_data_train,), 'list_data_train_' + confinedfield_namesub)
         case.savePickleData(time, (list_data_gs,), 'list_data_GS_' + confinedfield_namesub)
 
-# Else if directly read GS, train and test data from pickle data
-else:
-    list_data_gs = case.readPickleData(time, 'list_data_GS_' + confinedfield_namesub)
-    list_data_train = case.readPickleData(time, 'list_data_train_' + confinedfield_namesub)
+# # Else if directly read GS, train and test data from pickle data
+# else:
+#     list_data_gs = case.readPickleData(time, 'list_data_GS_' + confinedfield_namesub)
+#     list_data_train = case.readPickleData(time, 'list_data_train_' + confinedfield_namesub)
 
 
 """
@@ -460,27 +506,28 @@ if process_slices:
             else:
                 warn("\nError: {} not assigned to a variable!".format(name), stacklevel=2)
 
-        # Rotate fields if requested
-        if rotz != 0.:
-            grad_k = rotateData(grad_k, anglez=rotz)
-            # Switch to matrix form for grad(U) and rotate
-            grad_u = grad_u.reshape((-1, 3, 3))
-            grad_u = rotateData(grad_u, anglez=rotz).reshape((-1, 9))
-            u = rotateData(u, anglez=rotz)
-            grad_p = rotateData(grad_p, anglez=rotz)
-            # Extend symmetric tensor to full matrix form
-            uuprime2 = expandSymmetricTensor(uuprime2).reshape((-1, 3, 3))
-            uuprime2 = rotateData(uuprime2, anglez=rotz).reshape((-1, 9))
-            uuprime2 = contractSymmetricTensor(uuprime2)
+        # FIXME: uuprime2 probably wrong
+        # # Rotate fields if requested
+        # if rotz != 0.:
+        #     grad_k = rotateData(grad_k, anglez=rotz)
+        #     # Switch to matrix form for grad(U) and rotate
+        #     grad_u = grad_u.reshape((-1, 3, 3))
+        #     grad_u = rotateData(grad_u, anglez=rotz).reshape((-1, 9))
+        #     u = rotateData(u, anglez=rotz)
+        #     grad_p = rotateData(grad_p, anglez=rotz)
+        #     # Extend symmetric tensor to full matrix form
+        #     uuprime2 = expandSymmetricTensor(uuprime2).reshape((-1, 3, 3))
+        #     uuprime2 = rotateData(uuprime2, anglez=rotz).reshape((-1, 9))
+        #     uuprime2 = contractSymmetricTensor(uuprime2)
 
         # Process invariants
         # Non-dimensional Sij (n_samples, 6) and Rij (n_samples, 9)
         # Using epsilon SGS as epsilon total is not necessary
         # according to the definition in Eq 5.65, Eq 5.66 in Sagaut (2006)
-        sij, rij = case.getStrainAndRotationRateTensorField(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
+        sij, rij = getStrainAndRotationRateTensor(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
         # Step 2: 10 invariant bases scaled Tij, shape (n_samples, 6)
         # with scaling of 1/[1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000]
-        tb = case.getInvariantBasesField(sij, rij, quadratic_only=False, is_scale=True)
+        tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=True)
         # Step 3: anisotropy tensor bij, shape (n_samples, 6)
         bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
         # # Step 4: evaluate 10 Tij coefficients g as output y

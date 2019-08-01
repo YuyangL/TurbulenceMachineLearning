@@ -19,6 +19,7 @@ from scipy.interpolate import griddata
 from numba import njit, prange
 from Utilities import timer
 from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.multioutput import RegressorChain
 import matplotlib.pyplot as plt
 from PlottingTool import BaseFigure, Plot2D_Image
@@ -70,45 +71,50 @@ fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
 # and whether to save estimator after training
 train_model, save_estimator = True, True  # bool
 # Name of the ML estimator
-estimator_name = 'tbab'  # "tbdt", "tbrf", "tbab", "tbrc"
+estimator_name = 'tbgb'  # "tbdt", "tbrf", "tbab", "tbrc"
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
-max_features = (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
+max_features = 1. # (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
 min_samples_leaf = 4  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
-min_samples_split = 16#(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_split = 16 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = 5#(3, 5)  # int
+max_depth = 10#(3, 5)  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
-alpha_g_split = (0., 0.001)  # list/tuple(float) or float
+alpha_g_split = 0#(0., 0.001)  # list/tuple(float) or float
 # Best split finding scheme to speed up the process of locating the best split in samples of each node
 split_finder = "brent"  # "brute", "brent", "1000", "auto"
 # Cap of optimal g magnitude after LS fit
 g_cap = None  # int or float or None
 # Realizability iterator to shift predicted bij to be realizable
 realize_iter = 0  # int
-# For TBRF only
+# For specific estimators only
 if estimator_name in ("TBRF", "tbrf"):
     n_estimators = 8  # int
     oob_score = True  # bool
     median_predict = True  # bool
     # What to do with bij novelties
     bij_novelty = 'excl'
-
-if estimator_name in ("TBAB", "tbab"):
+elif estimator_name in ("TBAB", "tbab"):
     n_estimators = 5  # int
     learning_rate = (0.1, 0.2)  # int
     loss = "square"  # 'linear'/'square'/'exponential'
     # What to do with bij novelties
     bij_novelty = 'lim'
-
-if estimator_name in ('TBRC', 'tbrc'):
+elif estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
     order = [0, 3, 1, 5, 4, 2]  # [4, 2, 5, 3, 1, 0]
+elif estimator_name in ('TBGB', 'tbgb'):
+    n_estimators = 30
+    learning_rate = 0.1
+    subsample = 0.8
+    n_iter_no_change = None
+    tol = 1e-4
+    bij_novelty = 'excl'
 
 # Seed value for reproducibility
 seed = 123
@@ -120,7 +126,7 @@ test_fraction = 0.2  # float [0-1]
 # Whether verbose on GSCV. 0 means off, larger means more verbose
 gs_verbose = 2  # int
 # Number of n-fold cross validation
-cv = 5  # int or None
+cv = None # int or None
 
 
 """
@@ -178,6 +184,8 @@ elif estimator_name in ('TBRC', 'tbrc'):
     min_samples_leaf = max(min_samples_leaf, 10)
     # Realizability iterator of bij prediction is turned off
     realize_iter = 0
+elif estimator_name == 'tbgb':
+    estimator_name = 'TBGB'
 
 
 """
@@ -398,11 +406,34 @@ if train_model:
                                    order=order,
                                    cv=cv,
                                    random_state=seed)
+    elif estimator_name == 'TBGB':
+        regressor = GradientBoostingRegressor(learning_rate=learning_rate,
+                                              n_estimators=n_estimators,
+                                              subsample=subsample,
+                                              criterion='mse',
+                                              min_samples_split=min_samples_split,
+                                              min_samples_leaf=min_samples_leaf,
+                                              max_depth=max_depth,
+                                              random_state=seed,
+                                              max_features=max_features,
+                                              verbose=gs_verbose,
+                                              presort=presort,
+                                              n_iter_no_change=n_iter_no_change,
+                                              tol=tol,
+                                              init='zero',
+                                              alpha_g_split=alpha_g_split,
+                                              alpha_g_fit=alpha_g_fit,
+                                              realize_iter=realize_iter,
+                                              tb_verbose=tb_verbose,
+                                              split_verbose=split_verbose,
+                                              split_finder=split_finder,
+                                              g_cap=g_cap,
+                                              bij_novelty=bij_novelty)
     else:
         regressor = base_estimator
 
     t0 = t.time()
-    if estimator_name in ('TBDT', 'TBAB', 'TBRC'):
+    if estimator_name in ('TBDT', 'TBAB', 'TBRC', 'TBGB'):
         regressor.fit(x_train, y_train, tb=tb_train)
     else:
         performEstimatorGridSearch(regressor, tuneparams, x_train, y_train, tb_train, x_test, y_test, tb_test, verbose=gs_verbose, refit=True)
@@ -462,6 +493,10 @@ xy_bary_test, rgb_bary_test = getBarycentricMapData(eigval_test)
 xy_bary_train, rgb_bary_train = getBarycentricMapData(eigval_train)
 xy_bary_pred_test, rgb_bary_pred_test = getBarycentricMapData(eigval_pred_test)
 xy_bary_pred_train, rgb_bary_pred_train = getBarycentricMapData(eigval_pred_train)
+
+# Manually limit RGB values
+rgb_bary_pred_test[rgb_bary_pred_test > 1.] = 1.
+rgb_bary_pred_train[rgb_bary_pred_train > 1,] = 1.
 t1 = t.time()
 print('\nFinished getting Barycentric map data in {:.4f} s'.format(t1 - t0))
 

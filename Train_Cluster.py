@@ -1,9 +1,8 @@
 import pickle
 import os
 from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearch,  performEstimatorGridSearch
-from joblib import dump
+from joblib import dump, load
 import time as t
-
 
 """
 User Inputs
@@ -13,6 +12,8 @@ gsdata_name = 'list_data_GS_Confined'
 traindata_name = 'list_data_train_Confined'
 confined_zone = '1'
 estimators = ('TBDT', 'TBRF', 'TBAB')  # str, list/tuple(str)
+# Whether skip the GSCV step, only for TBDT and TBAB
+skip_gscv = 'auto'  # 'auto', bool
 
 
 """
@@ -129,14 +130,28 @@ for estimator in estimators:
         ab_kwargs_tot = {**ab_kwargs, **general_kwargs}
         regressor_gs, regressor, tuneparams = setupAdaBoostGridSearch(**ab_kwargs_tot)
 
+    # Load saved GSCV estimator if asked and don't do GSCV again
+    if skip_gscv in ('auto', True):
+        try:
+            regressor_gs = load(resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+            do_gscv = False
+            print('\nSaved GSCV estimator found, skipping GSCV and directly to full training...')
+        except:
+            do_gscv = True
+
+    else:
+        do_gscv = True
+
     # GS(CV)
     print(tuneparams)
     t0 = t.time()
     if estimator in ('TBDT', 'TBAB'):
-        # This is a GSCV object
-        regressor_gs.fit(x_gs, y_gs, tb=tb_gs)
-        # Save the GSCV for further inspection
-        dump(regressor_gs, resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+        if do_gscv:
+            # This is a GSCV object
+            regressor_gs.fit(x_gs, y_gs, tb=tb_gs)
+            # Save the GSCV for further inspection
+            dump(regressor_gs, resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+
         # This is the actual estimator, setting the best found hyper-parameters to it
         regressor.set_params(**regressor_gs.best_params_)
     else:
