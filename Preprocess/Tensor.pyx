@@ -8,6 +8,7 @@ cimport numpy as np
 from libc.stdio cimport printf
 from libc.math cimport sqrt
 from Utility import collapseMeshGridFeatures, reverseOldGridShape
+cimport cython
 
 cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropic=True, int realization_iter=0, bint to_old_grid_shape=True):
     """
@@ -239,14 +240,16 @@ cpdef np.ndarray expandSymmetricTensor(np.ndarray tensor):
     return tensor_full
 
 
+@cython.wraparound(True)
 cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor):
     """
     Contract an nD full symmetric tensor of 9 components to 6 components.
     The given nD full symmetric tensor can have any shape but the last D must be 9 components.
     The returned compact nD symmetric tensor will have the same shape of given symmetric tensor except last D being 6 components.
     
-    :param tensor: nD full symmetric tensor of 9 components. n can be any number.
-    :type tensor: ndarray[..., 9] 
+    :param tensor: nD full symmetric tensor of 9 or (3, 3) components. n can be any number.
+    :type tensor: ndarray[..., 9] or ndarray[..., 3, 3]
+    
     :return: nD compact symmetric tensor of 6 components with same nD as tensor.
     If given tensor doesn't have 9 components in the last D, the original tensor is returned. 
     :rtype: ndarray[..., 6] or ndarray
@@ -256,10 +259,18 @@ cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor):
     cdef unsigned int last_ax = len(shape_old) - 1
     cdef tuple idx_1to6
 
-    # If the symmetric tensor nD array's last D isn't 9 components, return old tensor
-    if tensor.shape[last_ax] != 9:
-
+    # If the symmetric tensor 2D array's last D isn't 9 components, return old tensor
+    if len(shape_old) == 2:
+        if tensor.shape[last_ax] != 9: return tensor
+    # Else if tensor is 3D or more neither last D isn't 9 nor last 2D aren't 3 x 3, return old tensor
+    elif len(shape_old) > 2:
+        if tensor.shape[last_ax] != 9 or np.shape(tensor[..., :, :]) != (3, 3): return tensor
+    # Else if 1D tensor, return old tensor
+    else:
         return tensor
+
+    # If tensor is given in the shape of (..., 3, 3), collapse matrix to 9
+    if len(shape_old) > 2 and np.shape(tensor[..., :, :]) == (3, 3): tensor = tensor.reshape((-1, 9))
 
     # Indices to concatenate
     idx_1to6 = (0, 1, 2, 4, 5, 8)

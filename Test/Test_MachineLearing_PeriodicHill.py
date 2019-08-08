@@ -28,7 +28,7 @@ from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 from copy import copy
 from joblib import load, dump
-from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor
+from tbnn import NetworkStructure, TBNN
 
 
 """
@@ -71,11 +71,11 @@ fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
 # and whether to save estimator after training
 train_model, save_estimator = True, True  # bool
 # Name of the ML estimator
-estimator_name = 'tbgb'  # "tbdt", "tbrf", "tbab", "tbrc"
+estimator_name = 'tbnn'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
-max_features = 1. # (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
+max_features = 0.8 # (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
 min_samples_leaf = 4  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
@@ -109,12 +109,20 @@ elif estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
     order = [0, 3, 1, 5, 4, 2]  # [4, 2, 5, 3, 1, 0]
 elif estimator_name in ('TBGB', 'tbgb'):
-    n_estimators = 30
-    learning_rate = 0.1
-    subsample = 0.8
+    n_estimators = 10
+    learning_rate = 1
+    subsample = 1
     n_iter_no_change = None
     tol = 1e-4
     bij_novelty = 'excl'
+    loss = 'ls'
+elif estimator_name in ('TBNN', 'tbnn'):
+    num_layers = 16  # Number of hidden layers in the TBNN
+    num_nodes = 32  # Number of nodes per hidden layer
+    max_epochs = 2000  # Max number of epochs during training
+    min_epochs = 1000  # Min number of training epochs required
+    interval = 100  # Frequency at which convergence is checked
+    average_interval = 4  # Number of intervals averaged over for early stopping criteria
 
 # Seed value for reproducibility
 seed = 123
@@ -186,6 +194,8 @@ elif estimator_name in ('TBRC', 'tbrc'):
     realize_iter = 0
 elif estimator_name == 'tbgb':
     estimator_name = 'TBGB'
+elif estimator_name == 'tbnn':
+    estimator_name = 'TBNN'
 
 
 """
@@ -428,7 +438,20 @@ if train_model:
                                               split_verbose=split_verbose,
                                               split_finder=split_finder,
                                               g_cap=g_cap,
-                                              bij_novelty=bij_novelty)
+                                              bij_novelty=bij_novelty,
+                                              loss=loss)
+    elif estimator_name == 'TBNN':
+        # Swap n_bases and n_outputs axes as TBNN requires Tij of shape (n_samples, n_bases, n_outputs)
+        tb_train = np.swapaxes(tb_train, 1, 2)
+        tb_test = np.swapaxes(tb_test, 1, 2)
+        # Define network structure
+        structure = NetworkStructure()
+        structure.set_num_layers(num_layers)
+        structure.set_num_nodes(num_nodes)
+        # Initialize and fit TBNN
+        regressor = TBNN(structure)
+        regressor.fit(x_train, tb_train, y_train, max_epochs=max_epochs, min_epochs=min_epochs, interval=interval,
+                 average_interval=average_interval)
     else:
         regressor = base_estimator
 
@@ -446,8 +469,9 @@ if train_model:
 else:
     regressor = load(case.resultPaths[time] + estimator_name + '.joblib')
 
-score_test = regressor.score(x_test, y_test, tb=tb_test)
-score_train = regressor.score(x_train, y_train, tb=tb_train)
+if estimator_name != 'TBNN':
+    score_test = regressor.score(x_test, y_test, tb=tb_test)
+    score_train = regressor.score(x_train, y_train, tb=tb_train)
 
 # plt.figure(num="DBRT", figsize=(16, 10))
 # try:
@@ -461,20 +485,20 @@ y_pred_train = regressor.predict(x_train, tb=tb_train)
 t1 = t.time()
 print('\nFinished bij prediction in {:.4f} s'.format(t1 - t0))
 
+if estimator_name == 'TBNN':
+    score_train = regressor.rmse_score(y_train, y_pred_train)
+    score_test = regressor.rmse_score(y_test, y_pred_test)
 
-
-print('\n\nLoading regressor... \n')
-reg2 = load(case.resultPaths[time] + estimator_name + '.joblib')
-score_test2 = reg2.score(x_test, y_test, tb=tb_test)
-score_train2 = reg2.score(x_train, y_train, tb=tb_train)
-
-t0 = t.time()
-y_pred_test2 = reg2.predict(x_test, tb=tb_test)
-y_pred_train2 = reg2.predict(x_train, tb=tb_train)
-t1 = t.time()
-print('\nFinished bij prediction in {:.4f} s'.format(t1 - t0))
-
-
+# print('\n\nLoading regressor... \n')
+# reg2 = load(case.resultPaths[time] + estimator_name + '.joblib')
+# score_test2 = reg2.score(x_test, y_test, tb=tb_test)
+# score_train2 = reg2.score(x_train, y_train, tb=tb_train)
+#
+# t0 = t.time()
+# y_pred_test2 = reg2.predict(x_test, tb=tb_test)
+# y_pred_train2 = reg2.predict(x_train, tb=tb_train)
+# t1 = t.time()
+# print('\nFinished bij prediction in {:.4f} s'.format(t1 - t0))
 
 
 """

@@ -8,10 +8,12 @@ cimport numpy as np
 from libc.math cimport fmax, ceil, sqrt, cbrt, sin, cos
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=None,
+                                tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
                                 double mesh_target=1e4, str interp="linear", double fill_val=np.nan):
     """
-    Interpolate given coordinates and field properties to satisfy given summed mesh size, with given interpolation method.
+    Interpolate given coordinates and field properties to satisfy given summed mesh size, given x, y (and z) limits, with given interpolation method.
     If z is not given, then the interpolation is 2D. 
+    If any of xlim, ylim, zlim is given, the corresponding axis is limited.
     The number of cells nx, ny, (nz) in each dimension is automatically determined to scale with physical dimension length lx, ly, (lz),
     so that nx = lx*nbase; ny = ly*nbase; (nz = lz*nbase), 
     and nx*ny = mesh_target or nx*ny*nz = mesh_target. 
@@ -24,6 +26,16 @@ cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t]
     :type val: ndarray[n_points, n_features] if n_features > 1 or ndarray[n_points]
     :param z: Z coordinates in case of 3D.
     :type z: ndarray[n_points] or None, optional (default=None)
+    :param xlim: X limit of the target mesh, in a tuple of minimum x and maximum x.
+    If minimum x is None, min() of the known x is used. The same for maximum x.
+    :type xlim: tuple, optional (default=(None, None))
+    :param ylim: Y limit of the target mesh, in a tuple of minimum y and maximum y.
+    If minimum y is None, min() of the known x is used. The same for maximum y.
+    :type ylim: tuple, optional (default=(None, None))
+    :param zlim: Z limit of the target mesh, in a tuple of minimum z and maximum z.
+    If z is not provided, zlim has no effect.
+    If z is provided and minimum z is None, min() of the known z is used. The same for maximum z.
+    :type zlim: tuple, optional (default=(None, None))
     :param mesh_target: Summed size of the target mesh. 
     The function takes this value and assign cells to each dimension based on physical dimension length.
     :type mesh_target: float, optional (default=1e4)
@@ -54,9 +66,20 @@ cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t]
         val = np.transpose(np.atleast_2d(val))
 
     n_features = val.shape[1]
+    # Limit new mesh if requested
+    xmin = x.min() if xlim[0] is None else xlim[0]
+    xmax = x.max() if xlim[1] is None else xlim[1]
+    ymin = y.min() if ylim[0] is None else ylim[0]
+    ymax = y.max() if ylim[1] is None else ylim[1]
+    if z is not None:
+        zmin = z.min() if zlim[0] is None else zlim[0]
+        zmax = z.max() if zlim[1] is None else zlim[1]
+    else:
+        zmin = zmax = None
+
     # Get x, y, z's length, and prevent 0 since they will be divided later
-    lx, ly = fmax(x.max() - x.min(), 0.0001), fmax(y.max() - y.min(), 0.0001)
-    lz = fmax(z.max() - z.min(), 0.0001) if z is not None else 0.
+    lx, ly = fmax(xmax - xmin, 0.0001), fmax(ymax - ymin, 0.0001)
+    lz = fmax(zmax - zmin, 0.0001) if z is not None else 0.
 
     # Since we want number of cells in x, y, z to scale with lx, ly, lz, create a base number of cells nbase and
     # let (lx*nbase)*(ly*nbase)*(lz*nbase) = mesh_target,
@@ -72,15 +95,15 @@ cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t]
     if z is not None:
         # Known coordinates with shape (3, n_points) trasposed to (n_points, 3)
         coor_known = np.transpose(np.vstack((x, y, z)))
-        xmesh, ymesh, zmesh = np.mgrid[x.min():x.max():precision_x,
-                              y.min():y.max():precision_y,
-                              z.min():z.max():precision_z]
+        xmesh, ymesh, zmesh = np.mgrid[xmin:xmax:precision_x,
+                              ymin:ymax:precision_y,
+                              zmin:zmax:precision_z]
         coor_request = (xmesh, ymesh, zmesh)
         val_mesh = np.empty((xmesh.shape[0], xmesh.shape[1], xmesh.shape[2], n_features))
     else:
         coor_known = np.transpose(np.vstack((x, y)))
-        xmesh, ymesh = np.mgrid[x.min():x.max():precision_x,
-                       y.min():y.max():precision_y]
+        xmesh, ymesh = np.mgrid[xmin:xmax:precision_x,
+                       ymin:ymax:precision_y]
         # Dummy array for zmesh in 2D
         zmesh = np.empty(1)
         coor_request = (xmesh, ymesh)
@@ -276,10 +299,11 @@ cpdef np.ndarray rotateData(np.ndarray ndarr, double anglex=0., double angley=0.
     cdef unsigned int i, j
 
     # Automatically detect wheter angles are in radian or degree
-    if anglex > 2.*np.pi: anglex = anglex/180.*np.pi
-    if angley > 2.*np.pi: angley = angley/180.*np.pi
-    if anglez > 2.*np.pi: anglez = anglez/180.*np.pi
+    if anglex > 2.*np.pi: anglex /= 180./np.pi
+    if angley > 2.*np.pi: angley /= 180./np.pi
+    if anglez > 2.*np.pi: anglez /= 180./np.pi
     # Collapse mesh grid and infer whether it's a matrix or vector
+    # It'll have shape (n_samples, vector size) or (n_samples, matrix_shape)
     ndarr, shape_old = collapseMeshGridFeatures(ndarr, True, matrix_shape, collapse_matrix=False)
     # Rotation matrices in x, y, z
     rotij_x, rotij_y, rotij_z = np.zeros((3, 3)), np.zeros((3, 3)), np.zeros((3, 3))
@@ -310,13 +334,14 @@ cpdef np.ndarray rotateData(np.ndarray ndarr, double anglex=0., double angley=0.
     for i in range(ndarr.shape[0]):
         # For matrices, do Qij*matrix*Qij^T
         if len(np.shape(ndarr)) > 2:
-            # If matrix_shape was 3D, e.g. (n_bases, 3, 3) for Tij, then loop through matrix_shape[0] too
-            if len(np.shape(ndarr)) == 3:
+            # If matrix_shape was 3D, e.g. (n_bases, 3, 3) for Tij, then loop through matrix_shape[0] (aka ndarr[i, j]) too
+            if len(np.shape(ndarr)) == 4:
                 for j in range(ndarr.shape[1]):
                     ndarr[i, j] = qij @ (ndarr[i, j] @ qij.T)
 
             else:
                 ndarr[i] = qij @ (ndarr[i] @ qij.T)
+
         # Else for vectors, do Qij*vector
         else:
             ndarr[i] = np.dot(qij, ndarr[i])

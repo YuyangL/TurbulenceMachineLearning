@@ -4,6 +4,7 @@ import sys
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
 from PostProcess_SliceData import SliceProperties
+from SetData import SetProperties
 from Preprocess.Tensor import processReynoldsStress, expandSymmetricTensor, contractSymmetricTensor, getStrainAndRotationRateTensor, getInvariantBases
 from Preprocess.Feature import getInvariantFeatureSet
 from Preprocess.FeatureExtraction import splitTrainTestDataList
@@ -33,12 +34,10 @@ time = 'last'  # str/float/int or 'last'
 interp_method = "nearest"  # "nearest", "linear", "cubic"
 # What keyword does the gradient fields contain
 grad_kw = 'grad'  # str
-# Slice names for prediction visualization
-slicenames = 'auto'
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
-process_raw_field, process_invariants = True, True  # bool
+process_raw_field, process_invariants = False, False  # bool
 # Flow field counter-clockwise rotation in x-y plane
 # so that tensor fields are parallel/perpendicular to flow direction
 rotz = np.pi/6  # float [rad]
@@ -75,9 +74,9 @@ save_fields, resultfolder = True, 'Result'  # bool; str
 Machine Learning Settings
 """
 # Whether to calculate features or directly read from pickle data
-calculate_features = True  # bool
+calculate_features = False  # bool
 # Whether to split train and test data or directly read from pickle data
-prep_train_test_data = True  # bool
+prep_train_test_data = False  # bool
 # Number of samples for Grid Search before training on all data
 # Also number of samples to do ML, if None, all samples are used for training
 samples_gs, samples_train = 10000, None  # int; int, None
@@ -93,7 +92,10 @@ seed = 123  # int, None
 Visualization Settings
 """
 # Whether to process slices and save them for prediction visualization later
-process_slices = False  # bool
+process_slices, process_sets = False, True  # bool
+# Slice names for prediction visualization
+slicenames = 'auto'
+set_types = 'auto'
 
 
 """
@@ -125,7 +127,7 @@ if time == 'last':
                                                'sevenDdownstreamTurbines')
 
     elif casename == 'ALM_N_L_ParTurb':
-        time = '23000.105'
+        time = '23000.07'
         if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                                'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
@@ -136,6 +138,13 @@ if time == 'last':
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
          'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
          'sevenDdownstreamTurbine')
+        if set_types == 'auto': set_types = ('oneDdownstreamTurbine_H',
+                                             'threeDdownstreamTurbine_H',
+                                             'sevenDdownstreamTurbine_H',
+                                             'oneDdownstreamTurbine_V',
+                                             'threeDdownstreamTurbine_V',
+                                             'sevenDdownstreamTurbine_V'
+                                             )
 
     elif casename == 'ALM_N_H_SeqTurb':
         time = '25000.1638025'
@@ -146,7 +155,7 @@ if time == 'last':
                                                'sixDdownstreamTurbineTwo')
 
     elif casename == 'ALM_N_L_SeqTurb':
-        time = '23000.17'
+        time = '23000.135'
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
                                                'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
@@ -154,7 +163,12 @@ if time == 'last':
                                                'sixDdownstreamTurbineTwo')
 
     elif casename == 'ALM_N_L_ParTurb_Yaw':
-        time = ''
+        time = '23000.065'
+        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                               'sevenDdownstreamTurbines')
+
     elif casename == 'ALM_N_H_ParTurb_HiSpeed':
         time = ''
 
@@ -447,9 +461,7 @@ if process_slices:
         for i in range(len(slice.sliceNames)):
             slicename = slice.sliceNames[i]
             # Skip kSGSmean since it will be discovered when kResolved or epsilonSGSmean is discovered
-            if 'kSGSmean' in slicename:
-                continue
-
+            if 'kSGSmean' in slicename: continue
             # If matching slice type, proceed
             if slice_type in slicename:
                 val = slice.slicesVal[slicename]
@@ -542,7 +554,7 @@ if process_slices:
             case.savePickleData(time, rij, fileNames=('Rij_' + slice_type))
             case.savePickleData(time, tb, fileNames=('Tij_' + slice_type))
             case.savePickleData(time, bij, fileNames=('bij_' + slice_type))
-            case.savePickleData(time, list_slicecoor[slice_type], fileNames='cc_' + slice_type)
+            case.savePickleData(time, list_slicecoor[slice_type], fileNames='CC_' + slice_type)
 
         # Calculate features
         if fs == 'grad(TKE)':
@@ -567,6 +579,81 @@ if process_slices:
         if save_fields:
             case.savePickleData(time, (list_data_test,), 'list_data_test_' + slice_type)
 
+
+"""
+Process Sets If Requested for Prediction & Visualization
+"""
+if process_sets:
+    setcase = SetProperties(casename=casename, casedir=casedir, time=time)
+    setcase.readSets()
+    # Go through each line type
+    for set_type in set_types:
+        # Go through each line full name
+        for set in setcase.sets:
+            # If line type in full name
+            if set_type in set:
+                if '_kSGSmean' in set: continue
+                # If velocity name in full name
+                elif '_U' in set:
+                    if grad_kw in set:
+                        grad_u = setcase.data[set]
+                    else:
+                        u = setcase.data[set]
+                        distance = setcase.coor[set]
+
+                elif '_kResolved' in set:
+                    if grad_kw in set:
+                        grad_k = setcase.data[set]
+                        for set2 in setcase.sets:
+                            if set_type in set2 and (grad_kw + '_kSGSmean') in set2:
+                                print(' Calculating total grad(<k>) for {}...'.format(set_type))
+                                grad_k += setcase.data[set2]
+                    else:
+                        k = setcase.data[set]
+                        for set2 in setcase.sets:
+                            if set_type in set2 and '_kSGSmean' in set2 and grad_kw not in set2:
+                                print(' Calculating total <k> for {}...'.format(set_type))
+                                k += setcase.data[set2]
+
+                elif '_p_rgh' in set:
+                    if grad_kw in set:
+                        grad_p = setcase.data[set]
+                    else:
+                        g = setcase.data[set]
+
+                elif '_eps' in set:
+                    epsilon = setcase.data[set]
+
+                elif '_uu' in set:
+                    uuprime2 = setcase.data[set]
+
+        sij, rij = getStrainAndRotationRateTensor(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
+        tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=True)
+        bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
+        if save_fields:
+            case.savePickleData(time, sij, fileNames=('Sij_' + set_type))
+            case.savePickleData(time, rij, fileNames=('Rij_' + set_type))
+            case.savePickleData(time, tb, fileNames=('Tij_' + set_type))
+            case.savePickleData(time, bij, fileNames=('bij_' + set_type))
+            case.savePickleData(time, distance, fileNames='CC_' + set_type)
+
+        if fs == 'grad(TKE)':
+            fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
+        elif fs == 'grad(p)':
+            fs_data, labels = getInvariantFeatureSet(sij, rij, grad_p=grad_p, u=u, grad_u=grad_u)
+        elif fs == 'grad(TKE)_grad(p)':
+            fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u,
+                                                     grad_u=grad_u)
+
+        if save_fields:
+            case.savePickleData(time, fs_data, fileNames=('FS_' + fs + '_' + set_type))
+
+        x = fs_data
+        y = bij
+        list_data_test, _ = splitTrainTestDataList([distance, x, y, tb], test_fraction=0., seed=seed,
+                                                   sample_size=None)
+        if save_fields:
+            case.savePickleData(time, (list_data_test,), 'list_data_test_' + set_type)
 
 
 

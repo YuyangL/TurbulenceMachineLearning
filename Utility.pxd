@@ -3,6 +3,7 @@
 cimport numpy as np
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=*,
+                                tuple xlim=*, tuple ylim=*, tuple zlim=*,
                                 double mesh_target=*, str interp=*, double fill_val=*)
 
 
