@@ -18,7 +18,7 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
     If to_old_grid_shape is enabled, then bij, eigenvalues, and eigenvectors are converted to old grid shape.
 
     :param stress_tensor: Reynolds stress u_i'u_j' or anisotropy stress tensor bij.
-    :type stress_tensor: 2D or more np.ndarray of dimension (1/2/3D grid) x (3, 3)/6/9 components
+    :type stress_tensor: ND array of dimension (n_points or 2/3D grid) x (3 x 3 or 6 or 9 components)
     :param make_anisotropic: Whether to convert to bij from given Reynolds stress.
     :type make_anisotropic: bool, optional (default=True)
     :param realization_iter: How many iterations to make bij realizable. If 0, then no iteration is done.
@@ -143,35 +143,38 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
     return bij, eigval, eigvec
 
 
-cpdef tuple getBarycentricMapData(np.ndarray eigval, bint optimize_cmap=True, double c_offset=0.65, double c_exp=5., bint to_old_grid_shape=False):
+cpdef tuple getBarycentricMapData(np.ndarray eigval, bint optimize_cmap=True, double c_offset=0.65, double c_exp=5., bint to_old_grid_shape=True):
     """
     Get the Barycentric map coordinates and RGB values to visualize turbulent states based on given eigenvalues of the anisotropy tensor bij.
-    Method from Banerjee (2007).
+    Method from Banerjee (2007) and Emory et al. (2014).
     If optimize_cmap is enabled, then the original Barycentric RGB is optimized to put more focus on turbulence inter-states.
     Additionally, if optimize_cmap is enabled, c_offset and c_exp are used to transform the old RGB to the optimized one.
     
     :param eigval: Eigenvalues of anisotropy tensor of a number of points. 
     The last dimension is assumed to store the three eigenvalues of a 3 x 3 bij. 
-    :type eigval: np.ndarray[:, ..., 3] 
+    :type eigval: np.ndarray[mesh grid / n_points, 3] 
     :param optimize_cmap: Whether to optimize original Barycentric RGB map to a better one with more focus on turbulence inter-states.
     :type optimize_cmap: bool, optional (default=True)
     :param c_offset: If optimize_cmap is True, offset to shift the original RGB values. Recommended by Banerjee (2007) to be 0.65.
     :type c_offset: float, optional (default=0.65)
     :param c_exp: If optimize_cmap is True, exponent to power the shifted RGB values. Recommended by Banerjee (2007) to be 5.
     :type c_exp: float, optional (default=5.)
-    :param to_old_grid_shape: Whether to convert RGB value array to old grid shape.
+    :param to_old_grid_shape: Whether to convert RGB value array as well as barycentric map x, y coordinates array to old grid shape.
     :type to_old_grid_shape: bool, optional (default=False)
     
     :return: Barycentric triangle x, y coordinates and map original/optimized RGB values.
-    :rtype: (np.ndarray[n_points, 2], np.ndarray[n_points, 3])
+    :rtype: (ndarray[n_points x 2], ndarray[n_points x 3])
+    or (ndarray[mesh grid x 2], ndarray[mesh grid x 3])
     """
     cdef np.ndarray[np.float_t] c1, c2, c3, x_bary, y_bary
-    cdef np.ndarray[np.float_t, ndim=2] xy_bary, rgb_bary_orig, rgb_bary
-    cdef int i
+    cdef np.ndarray[np.float_t, ndim=2] rgb_bary_orig
+    cdef np.ndarray xy_bary, rgb_bary
+    cdef unsigned int i, n_points
     cdef double x1c, x2c, x3c, y1c, y2c, y3c
     cdef tuple shape_old
 
-    eigval, shape_old = convertTensorTo2D(eigval, infer_stress=False)
+    eigval, shape_old = collapseMeshGridFeatures(eigval, infer_matrix_form=False)
+    n_points = eigval.shape[0]
     # Coordinates of the anisotropy tensor in the tensor basis {a1c, a2c, a3c}. From Banerjee (2007),
     # C1c = lambda1 - lambda2,
     # C2c = 2(lambda2 - lambda3),
@@ -204,10 +207,12 @@ cpdef tuple getBarycentricMapData(np.ndarray eigval, bint optimize_cmap=True, do
         rgb_bary = rgb_bary_orig
 
     # If reverse RGB from n_points x 3 to grid shape x 3
+    # and barycentric map x, y coordinates from n_points x 2 to grid shape x 2
     if to_old_grid_shape:
         rgb_bary = reverseOldGridShape(rgb_bary, shape_old)
+        xy_bary = reverseOldGridShape(xy_bary, shape_old)
 
-    print('\nBarycentric map coordinates and RGB values obtained for ' + str(xy_bary.shape[0]) + ' points')
+    print('\nBarycentric map coordinates and RGB values obtained for ' + str(n_points) + ' points')
     return xy_bary, rgb_bary
 
 
@@ -465,12 +470,108 @@ cpdef np.ndarray[np.float_t, ndim=3] getInvariantBases(np.ndarray sij, np.ndarra
     return tb
 
 
+cpdef np.ndarray makeRealizable(np.ndarray bij):
+    """
+    From Ling et al. (2016), see https://github.com/tbnn/tbnn.
+    
+    This function is specific to turbulence modeling.
+    Given the anisotropy tensor, this function forces realizability
+    by shifting values within acceptable ranges for Aii > -1/3 and 2|Aij| < Aii + Ajj + 2/3
+    Then, if eigenvalues negative, shift them to zero. Noteworthy that this step can undo
+    constraints from first step, so this function should be called iteratively to get convergence
+    to a realizable state.
+
+    :param bij: The predicted anisotropy tensor.
+    :type bij: np.ndarray[n_points or mesh grid, 9 or 6 or 3 x 3]
+
+    :return: The predicted realizable anisotropy tensor, same shape as the input array.
+    :type: np.ndarray[n_points or mesh grid, 6 or 9 or 3 x 3]
+    """
+    cdef unsigned int n_points, i, j, old_lastdim
+    cdef np.ndarray[np.float_t, ndim=2] A, evectors
+    cdef np.ndarray[np.float_t] evalues
+    cdef list bii
+    cdef tuple oldshape
+
+    # Collapse mesh grid and if 3 x 3 form, collapse matrix form too to 9
+    bij, oldshape = collapseMeshGridFeatures(bij, collapse_matrix=True)
+    old_lastdim = len(oldshape) - 1
+    # If bij is n_points x 6, expand it to full form of n_points x 9
+    if bij.shape[1] == 6: bij = expandSymmetricTensor(bij)
+
+    n_points = bij.shape[0]
+    bii = [0, 4, 8]
+    A = np.zeros((3, 3))
+    for i in range(n_points):
+        # Scales all on-diags to retain zero trace
+        if np.min(bij[i, [0, 4, 8]]) < -1./3.:
+            bij[i, [0, 4, 8]] *= -1./(3.*np.min(bij[i, [0, 4, 8]]))
+
+        if 2.*np.abs(bij[i, 1]) > bij[i, 0] + bij[i, 4] + 2./3.:
+            bij[i, 1] = (bij[i, 0] + bij[i, 4] + 2./3.)*.5*np.sign(bij[i, 1])
+            bij[i, 3] = (bij[i, 0] + bij[i, 4] + 2./3.)*.5*np.sign(bij[i, 1])
+        if 2.*np.abs(bij[i, 5]) > bij[i, 4] + bij[i, 8] + 2./3.:
+            bij[i, 5] = (bij[i, 4] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 5])
+            bij[i, 7] = (bij[i, 4] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 5])
+        if 2.*np.abs(bij[i, 2]) > bij[i, 0] + bij[i, 8] + 2./3.:
+            bij[i, 2] = (bij[i, 0] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 2])
+            bij[i, 6] = (bij[i, 0] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 2])
+
+        # Enforce positive semidefinite by pushing evalues to non-negative
+        A[0, 0] = bij[i, 0]
+        A[1, 1] = bij[i, 4]
+        A[2, 2] = bij[i, 8]
+        A[0, 1] = bij[i, 1]
+        A[1, 0] = bij[i, 1]
+        A[1, 2] = bij[i, 5]
+        A[2, 1] = bij[i, 5]
+        A[0, 2] = bij[i, 2]
+        A[2, 0] = bij[i, 2]
+        evalues, evectors = np.linalg.eig(A)
+        if np.max(evalues) < (3.*np.abs(np.sort(evalues)[1]) - np.sort(evalues)[1])/2.:
+            evalues = evalues*(3.*np.abs(np.sort(evalues)[1]) - np.sort(evalues)[1])/(2.*np.max(evalues))
+            A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
+            for j in range(3):
+                bij[i, bii[j]] = A[j, j]
+
+            bij[i, 1] = A[0, 1]
+            bij[i, 5] = A[1, 2]
+            bij[i, 2] = A[0, 2]
+            bij[i, 3] = A[0, 1]
+            bij[i, 7] = A[1, 2]
+            bij[i, 6] = A[0, 2]
+
+        if np.max(evalues) > 1./3. - np.sort(evalues)[1]:
+            evalues = evalues*(1./3. - np.sort(evalues)[1])/np.max(evalues)
+            A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
+            for j in range(3):
+                bij[i, bii[j]] = A[j, j]
+
+            bij[i, 1] = A[0, 1]
+            bij[i, 5] = A[1, 2]
+            bij[i, 2] = A[0, 2]
+            bij[i, 3] = A[0, 1]
+            bij[i, 7] = A[1, 2]
+            bij[i, 6] = A[0, 2]
+
+    # Preparing to reverse to old mesh grid incase old shape is at least 3D and last dimension is n_components
+    if old_lastdim > 1:
+        if oldshape[old_lastdim] == 6:
+            bij = contractSymmetricTensor(bij)
+        elif oldshape[old_lastdim - 1:] == (3, 3):
+            bij = bij.reshape((bij[0], 3, 3))
+
+        bij = reverseOldGridShape(bij, oldshape)
+
+    return bij
+
+
 
 
 # -----------------------------------------------------
 # Supporting Functions, Not Intended to Be Called From Python
 # -----------------------------------------------------
-cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=2] labels):
+cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=2] bij):
     """
     From Ling et al. (2016), see https://github.com/tbnn/tbnn.
     
@@ -481,8 +582,8 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
     constraints from first step, so this function should be called iteratively to get convergence
     to a realizable state.
 
-    :param labels: The predicted anisotropy tensor.
-    :type labels: np.ndarray[n_points, 9]
+    :param bij: The predicted anisotropy tensor.
+    :type bij: np.ndarray[n_points, 9]
 
     :return: The predicted realizable anisotropy tensor.
     :type: np.ndarray[n_points, 9]
@@ -492,62 +593,62 @@ cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=
     cdef np.ndarray[np.float_t] evalues
     cdef list bii
 
-    n_points = labels.shape[0]
+    n_points = bij.shape[0]
     bii = [0, 4, 8]
     A = np.zeros((3, 3))
     for i in range(n_points):
         # Scales all on-diags to retain zero trace
-        if np.min(labels[i, [0, 4, 8]]) < -1./3.:
-            labels[i, [0, 4, 8]] *= -1./(3.*np.min(labels[i, [0, 4, 8]]))
+        if np.min(bij[i, [0, 4, 8]]) < -1./3.:
+            bij[i, [0, 4, 8]] *= -1./(3.*np.min(bij[i, [0, 4, 8]]))
 
-        if 2.*np.abs(labels[i, 1]) > labels[i, 0] + labels[i, 4] + 2./3.:
-            labels[i, 1] = (labels[i, 0] + labels[i, 4] + 2./3.)*.5*np.sign(labels[i, 1])
-            labels[i, 3] = (labels[i, 0] + labels[i, 4] + 2./3.)*.5*np.sign(labels[i, 1])
-        if 2.*np.abs(labels[i, 5]) > labels[i, 4] + labels[i, 8] + 2./3.:
-            labels[i, 5] = (labels[i, 4] + labels[i, 8] + 2./3.)*.5*np.sign(labels[i, 5])
-            labels[i, 7] = (labels[i, 4] + labels[i, 8] + 2./3.)*.5*np.sign(labels[i, 5])
-        if 2.*np.abs(labels[i, 2]) > labels[i, 0] + labels[i, 8] + 2./3.:
-            labels[i, 2] = (labels[i, 0] + labels[i, 8] + 2./3.)*.5*np.sign(labels[i, 2])
-            labels[i, 6] = (labels[i, 0] + labels[i, 8] + 2./3.)*.5*np.sign(labels[i, 2])
+        if 2.*np.abs(bij[i, 1]) > bij[i, 0] + bij[i, 4] + 2./3.:
+            bij[i, 1] = (bij[i, 0] + bij[i, 4] + 2./3.)*.5*np.sign(bij[i, 1])
+            bij[i, 3] = (bij[i, 0] + bij[i, 4] + 2./3.)*.5*np.sign(bij[i, 1])
+        if 2.*np.abs(bij[i, 5]) > bij[i, 4] + bij[i, 8] + 2./3.:
+            bij[i, 5] = (bij[i, 4] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 5])
+            bij[i, 7] = (bij[i, 4] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 5])
+        if 2.*np.abs(bij[i, 2]) > bij[i, 0] + bij[i, 8] + 2./3.:
+            bij[i, 2] = (bij[i, 0] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 2])
+            bij[i, 6] = (bij[i, 0] + bij[i, 8] + 2./3.)*.5*np.sign(bij[i, 2])
 
         # Enforce positive semidefinite by pushing evalues to non-negative
-        A[0, 0] = labels[i, 0]
-        A[1, 1] = labels[i, 4]
-        A[2, 2] = labels[i, 8]
-        A[0, 1] = labels[i, 1]
-        A[1, 0] = labels[i, 1]
-        A[1, 2] = labels[i, 5]
-        A[2, 1] = labels[i, 5]
-        A[0, 2] = labels[i, 2]
-        A[2, 0] = labels[i, 2]
+        A[0, 0] = bij[i, 0]
+        A[1, 1] = bij[i, 4]
+        A[2, 2] = bij[i, 8]
+        A[0, 1] = bij[i, 1]
+        A[1, 0] = bij[i, 1]
+        A[1, 2] = bij[i, 5]
+        A[2, 1] = bij[i, 5]
+        A[0, 2] = bij[i, 2]
+        A[2, 0] = bij[i, 2]
         evalues, evectors = np.linalg.eig(A)
         if np.max(evalues) < (3.*np.abs(np.sort(evalues)[1]) - np.sort(evalues)[1])/2.:
             evalues = evalues*(3.*np.abs(np.sort(evalues)[1]) - np.sort(evalues)[1])/(2.*np.max(evalues))
             A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
             for j in range(3):
-                labels[i, bii[j]] = A[j, j]
+                bij[i, bii[j]] = A[j, j]
 
-            labels[i, 1] = A[0, 1]
-            labels[i, 5] = A[1, 2]
-            labels[i, 2] = A[0, 2]
-            labels[i, 3] = A[0, 1]
-            labels[i, 7] = A[1, 2]
-            labels[i, 6] = A[0, 2]
+            bij[i, 1] = A[0, 1]
+            bij[i, 5] = A[1, 2]
+            bij[i, 2] = A[0, 2]
+            bij[i, 3] = A[0, 1]
+            bij[i, 7] = A[1, 2]
+            bij[i, 6] = A[0, 2]
 
         if np.max(evalues) > 1./3. - np.sort(evalues)[1]:
             evalues = evalues*(1./3. - np.sort(evalues)[1])/np.max(evalues)
             A = np.dot(np.dot(evectors, np.diag(evalues)), np.linalg.inv(evectors))
             for j in range(3):
-                labels[i, bii[j]] = A[j, j]
+                bij[i, bii[j]] = A[j, j]
 
-            labels[i, 1] = A[0, 1]
-            labels[i, 5] = A[1, 2]
-            labels[i, 2] = A[0, 2]
-            labels[i, 3] = A[0, 1]
-            labels[i, 7] = A[1, 2]
-            labels[i, 6] = A[0, 2]
+            bij[i, 1] = A[0, 1]
+            bij[i, 5] = A[1, 2]
+            bij[i, 2] = A[0, 2]
+            bij[i, 3] = A[0, 1]
+            bij[i, 7] = A[1, 2]
+            bij[i, 6] = A[0, 2]
 
-    return labels
+    return bij
 
 
 cdef np.ndarray[np.float_t, ndim=2] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=None):

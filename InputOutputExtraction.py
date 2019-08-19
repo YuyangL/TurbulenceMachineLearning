@@ -6,7 +6,7 @@ from PostProcess_FieldData import FieldData
 from PostProcess_SliceData import SliceProperties
 from SetData import SetProperties
 from Preprocess.Tensor import processReynoldsStress, expandSymmetricTensor, contractSymmetricTensor, getStrainAndRotationRateTensor, getInvariantBases
-from Preprocess.Feature import getInvariantFeatureSet
+from Preprocess.Feature import getInvariantFeatureSet, getSupplementaryInvariantFeatures, getRadialTurbineDistance
 from Preprocess.FeatureExtraction import splitTrainTestDataList
 from Utility import rotateData
 
@@ -29,7 +29,7 @@ casename = 'ALM_N_H_OneTurb'  # str
 # Absolute directory of this flow case
 casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
-time = 'last'  # str/float/int or 'last'
+time = 'latestTime'  # str/float/int or 'latestTime'
 # Interpolation method when interpolating mesh grids
 interp_method = "nearest"  # "nearest", "linear", "cubic"
 # What keyword does the gradient fields contain
@@ -65,6 +65,8 @@ if confine:
 cap_sijrij, cap_tij = 1e9, 1e9  # float/int
 # Enforce 0 trace when computing Tij?
 tij_0trace = False
+# Kinematic viscosity
+nu = 1e-5  # float
 
 # Save anything when possible
 save_fields, resultfolder = True, 'Result'  # bool; str
@@ -83,7 +85,7 @@ samples_gs, samples_train = 10000, None  # int; int, None
 # Fraction of data for testing
 test_fraction = 0.  # float [0-1]
 # Feature set choice
-fs = 'grad(TKE)_grad(p)'  # 'grad(TKE)', 'grad(p)', 'grad(TKE)_grad(p)'
+fs = 'grad(TKE)_grad(p)+'  # 'grad(TKE)', 'grad(p)', 'grad(TKE)_grad(p)', 'grad(TKE)_grad(p)+'
 # Use seed for reproducibility, set to None for no seeding
 seed = 123  # int, None
 
@@ -118,62 +120,60 @@ else:
 # Ensemble name of fields useful for Machine Learning
 mlfield_ensemble_name = 'ML_Fields_' + casename
 # Automatically select time if time is set to 'latest'
-if time == 'last':
-    if casename == 'ALM_N_H_ParTurb':
-        time = '22000.0918025'
-        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
-                                               'sevenDdownstreamTurbines')
+if casename == 'ALM_N_H_ParTurb':
+    if time == 'latestTime': time = '22000.0918025'
+    if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                           'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                           'sevenDdownstreamTurbines')
+    # 1D downstream: southern, northern; 3D downstream: southern, northern; 7D downstream: southern, northern
+    # TODO: 2D list here
+    turbloc = (2165.916, 1661.916, 2024.89, 1519.776, 1733.262, 1228.148)
+elif casename == 'ALM_N_L_ParTurb':
+    if time == 'latestTime': time = '23000.07'
+    if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                           'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                           'sevenDdownstreamTurbines')
 
-    elif casename == 'ALM_N_L_ParTurb':
-        time = '23000.07'
-        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
-                                               'sevenDdownstreamTurbines')
+elif casename == 'ALM_N_H_OneTurb':
+    if time == 'latestTime': time = '24995.0438025'
+    if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+     'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
+     'sevenDdownstreamTurbine')
+    if set_types == 'auto': set_types = ('oneDdownstreamTurbine_H',
+                                         'threeDdownstreamTurbine_H',
+                                         'sevenDdownstreamTurbine_H',
+                                         'oneDdownstreamTurbine_V',
+                                         'threeDdownstreamTurbine_V',
+                                         'sevenDdownstreamTurbine_V'
+                                         )
 
-    elif casename == 'ALM_N_H_OneTurb':
-        time = '24995.0438025'
-        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-         'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
-         'sevenDdownstreamTurbine')
-        if set_types == 'auto': set_types = ('oneDdownstreamTurbine_H',
-                                             'threeDdownstreamTurbine_H',
-                                             'sevenDdownstreamTurbine_H',
-                                             'oneDdownstreamTurbine_V',
-                                             'threeDdownstreamTurbine_V',
-                                             'sevenDdownstreamTurbine_V'
-                                             )
+elif casename == 'ALM_N_H_SeqTurb':
+    if time == 'latestTime': time = '25000.1638025'
+    if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                           'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
+                                           'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
+                                           'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
+                                           'sixDdownstreamTurbineTwo')
 
-    elif casename == 'ALM_N_H_SeqTurb':
-        time = '25000.1638025'
-        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                               'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
-                                               'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
-                                               'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
-                                               'sixDdownstreamTurbineTwo')
+elif casename == 'ALM_N_L_SeqTurb':
+    if time == 'latestTime': time = '23000.135'
+    if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                           'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
+                                           'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
+                                           'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
+                                           'sixDdownstreamTurbineTwo')
 
-    elif casename == 'ALM_N_L_SeqTurb':
-        time = '23000.135'
-        if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                               'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
-                                               'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
-                                               'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
-                                               'sixDdownstreamTurbineTwo')
+elif casename == 'ALM_N_L_ParTurb_Yaw':
+    if time == 'latestTime': time = '23000.065'
+    if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
+                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
+                                           'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
+                                           'sevenDdownstreamTurbines')
 
-    elif casename == 'ALM_N_L_ParTurb_Yaw':
-        time = '23000.065'
-        if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                               'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                               'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
-                                               'sevenDdownstreamTurbines')
-
-    elif casename == 'ALM_N_H_ParTurb_HiSpeed':
-        time = ''
-
-else:
-    time = str(time)
+elif casename == 'ALM_N_H_ParTurb_HiSpeed':
+    if time == 'latestTime': time = ''
 
 # Automatically define the confined domain region
 if confine and confinezone is not None:
@@ -400,9 +400,14 @@ if calculate_features:
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
     elif fs == 'grad(p)':
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_p=grad_p, u=u, grad_u=grad_u)
-    elif fs == 'grad(TKE)_grad(p)':
+    elif 'grad(TKE)_grad(p)' in fs:
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u,
                                                  grad_u=grad_u)
+        if '+' in fs:
+            nu *= np.ones_like(k)
+            r = getRadialTurbineDistance(cc[:, 0], cc[:, 1], cc[:, 2])
+
+
 
     del sij, rij, grad_k, k, epsilon, grad_u, u, grad_p
     # If only feature set 1 used for ML input, then do train test data split here

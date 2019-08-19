@@ -3,8 +3,8 @@ import sys
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from joblib import load
 from PostProcess_FieldData import FieldData
-from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor
-from Utility import interpolateGridData, rotateData
+from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor, makeRealizable
+from Utility import interpolateGridData, rotateData, gaussianFilter, fieldSpatialSmoothing
 import time as t
 from PlottingTool import BaseFigure, Plot2D, Plot2D_Image, PlotContourSlices3D, PlotSurfaceSlices3D, PlotImageSlices3D
 import os
@@ -13,6 +13,8 @@ from matplotlib.patches import Circle, PathPatch
 import mpl_toolkits.mplot3d.art3d as art3d
 import matplotlib.pyplot as plt
 from copy import copy
+from scipy.ndimage import gaussian_filter
+from Postprocess.Filter import nan_helper
 
 """
 User Inputs, Anything Can Be Changed Here
@@ -27,17 +29,21 @@ casedir = '/media/yluan'  # str
 slicenames = ('rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine')#, 'sevenDdownstreamTurbine')  # str
 zdir = 'x'
 slice_offset = (0, -1, -3)#, 7)
-set_types = 'auto'  # str
 time = 'last'  # str/float/int or 'last'
 seed = 123  # int
 # Interpolation method when interpolating mesh grids
-interp_method = "nearest"  # "nearest", "linear", "cubic"
+interp_method = "linear"  # "nearest", "linear", "cubic"
 # The case folder name storing the estimator
 estimator_folder = "ML/TBDT"  # str
 confinezone = '2'  # str
 # Feature set string
 fs = 'grad(TKE)_grad(p)'  # 'grad(TKE)_grad(p)', 'grad(TKE)', 'grad(p)', None
-realize_iter = 0  # int
+realize_iter = 2  # int
+filter = True  # bool
+# Multiplier to realizable bij limits [-1/2, 1/2] off-diagonally and [-1/3, 2/3] diagonally.
+# Whatever is outside bounds is treated as NaN.
+# Whatever between bounds and realizable limits are made realizable
+bijbnd_multiplier = 2.  # float
 
 
 """
@@ -67,12 +73,11 @@ Process User Inputs, Don't Change
 # Automatically select time if time is set to 'latest'
 if time == 'last':
     if test_casename == 'ALM_N_H_ParTurb':
-        time = '22000.0918025'
+        time = '25000.0838025'
         if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                                'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
                                                'sevenDdownstreamTurbines')
-
     elif test_casename == 'ALM_N_L_ParTurb':
         time = '23000.07'
         if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
@@ -85,14 +90,6 @@ if time == 'last':
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
                                                'sevenDdownstreamTurbine')
-        if set_types == 'auto': set_types = ('oneDdownstreamTurbine_H',
-                                             'threeDdownstreamTurbine_H',
-                                             'sevenDdownstreamTurbine_H',
-                                             'oneDdownstreamTurbine_V',
-                                             'threeDdownstreamTurbine_V',
-                                             'sevenDdownstreamTurbine_V'
-                                             )
-
     elif test_casename == 'ALM_N_H_SeqTurb':
         time = '25000.1288025'
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
@@ -100,16 +97,6 @@ if time == 'last':
                                                'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
                                                'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
                                                'sixDdownstreamTurbineTwo')
-        if set_types == 'auto': set_types = ('oneDdownstreamTurbineOne_H',
-                                             'oneDdownstreamTurbineTwo_H',
-                                             'threeDdownstreamTurbineOne_H',
-                                             'threeDdownstreamTurbineTwo_H',
-                                             'sixDdownstreamTurbineTwo_H',
-                                             'oneDdownstreamTurbineOne_V',
-                                             'oneDdownstreamTurbineTwo_V',
-                                             'threeDdownstreamTurbineOne_V',
-                                             'threeDdownstreamTurbineTwo_V',
-                                             'sixDdownstreamTurbineTwo_V')
     elif test_casename == 'ALM_N_L_SeqTurb':
         time = '23000.135'
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
@@ -155,7 +142,7 @@ else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
               'grad_UAvg')
 
-uniform_mesh_size = int(uniform_mesh_size)
+# uniform_mesh_size = int(uniform_mesh_size)
 if fieldrot > 2*np.pi: fieldrot /= 180./np.pi
 # Initialize case object for both ML and test case
 # case_ml = FieldData(caseName=ml_casename, caseDir=casedir, times=time, fields=fields, save=False)
@@ -232,22 +219,8 @@ if plotslices:
 
 
         """
-        Posprocess Machine Learning Predictions
+        Postprocess Machine Learning Predictions
         """
-        t0 = t.time()
-        _, eigval_test, _ = processReynoldsStress(y_test, make_anisotropic=False, realization_iter=0)
-        _, eigval_pred_test, _ = processReynoldsStress(y_pred_test, make_anisotropic=False, realization_iter=realize_iter)
-        t1 = t.time()
-        print('\nFinished processing Reynolds stress in {:.4f} s'.format(t1 - t0))
-
-        t0 = t.time()
-        xy_bary_test, rgb_bary_test = getBarycentricMapData(eigval_test)
-        xy_bary_pred_test, rgb_bary_pred_test = getBarycentricMapData(eigval_pred_test)
-        # Manually limit over range RGB values
-        rgb_bary_pred_test[rgb_bary_pred_test > 1.] = 1.
-        t1 = t.time()
-        print('\nFinished getting Barycentric map data in {:.4f} s'.format(t1 - t0))
-
         if 'OneTurb' in test_casename:
             if slicedir == 'xy':
                 extent_test = (633.225, 1930.298, 817.702, 1930.298)
@@ -279,13 +252,73 @@ if plotslices:
         else:
             extent_test = (cc1_test.min(), cc1_test.max(), cc2_test.min(), cc2_test.max())
 
+        # Filter the result if requested.
+        # This requires:
+        # 1. Remove any component outside bound and set to NaN
+        # 2. Interpolate to 2D slice mesh grid with nearest method
+        # 3. Use 2D Gaussian filter to smooth the mesh grid while ignoring NaN, for every component
+        # 4. Make whatever between bound and limits realizable
+        if filter:
+        #     # Step 1
+        #     for j in range(6):
+        #         if j in (0, 3, 5):
+        #             y_pred_test[..., j][y_pred_test[..., j] > 2/3.*bijbnd_multiplier] = np.nan
+        #             y_pred_test[..., j][y_pred_test[..., j] < -1/3.*bijbnd_multiplier] = np.nan
+        #         else:
+        #             y_pred_test[..., j][y_pred_test[..., j] > 1/2.*bijbnd_multiplier] = np.nan
+        #             y_pred_test[..., j][y_pred_test[..., j] < -1/2.*bijbnd_multiplier] = np.nan
+        #
+        #     # Step 2
+        #     t0 = t.time()
+        #     ccx_test_mesh, ccy_test_mesh, _, y_predtest_mesh = interpolateGridData(cc1_test, cc2_test,
+        #                                                                            y_pred_test,
+        #                                                                            xlim=c1lim,
+        #                                                                            ylim=c2lim,
+        #                                                                            mesh_target=uniform_mesh_size,
+        #                                                                            interp='nearest')
+        #     t1 = t.time()
+        #     print('\nFinished interpolating mesh data for bij in {:.4f} s'.format(t1 - t0))
+        #     # Step 3
+        #     for j in range(6):
+        #         y_predtest_mesh[..., j] = gaussianFilter(y_predtest_mesh[..., j])
+        #
+        #     # # Step 4
+        #     # for j in realize_iter:
+        #     #     y_predtest_mesh = makeRealizable(y_predtest_mesh)
+        #
+        #     # Calculate eigenvalues and eigenvectors after making bij predictions realizable
+            ccx_test_mesh, ccy_test_mesh, _, y_predtest_mesh = fieldSpatialSmoothing(y_pred_test, cc1_test, cc2_test, is_bij=True, bij_bnd_multiplier=bijbnd_multiplier,
+                                                    xlim=c1lim, ylim=c2lim, mesh_target=uniform_mesh_size)
+            y_pred_test = y_predtest_mesh
+
+        t0 = t.time()
+        _, eigval_test, _ = processReynoldsStress(y_test, make_anisotropic=False, realization_iter=0)
+        # If filter was True, eigval_pred_test is a mesh grid
+        _, eigval_pred_test, _ = processReynoldsStress(y_pred_test, make_anisotropic=False, realization_iter=realize_iter)
+        t1 = t.time()
+        print('\nFinished processing Reynolds stress in {:.4f} s'.format(t1 - t0))
+
+        t0 = t.time()
+        xy_bary_test, rgb_bary_test = getBarycentricMapData(eigval_test)
+        # If filter was True, both xy_bary_pred_test and rgb_bary_pred_test are mesh grids
+        xy_bary_pred_test, rgb_bary_pred_test = getBarycentricMapData(eigval_pred_test, to_old_grid_shape=True)
+        # Manually limit over range RGB values
+        rgb_bary_pred_test[rgb_bary_pred_test > 1.] = 1.
+        t1 = t.time()
+        print('\nFinished getting Barycentric map data in {:.4f} s'.format(t1 - t0))
+
         t0 = t.time()
         ccx_test_mesh, ccy_test_mesh, _, rgb_bary_test_mesh = interpolateGridData(cc1_test, cc2_test, rgb_bary_test,
                                                                                   xlim=c1lim, ylim=c2lim,
-                                                                                  mesh_target=uniform_mesh_size, interp=interp_method, fill_val=0.3)
-        _, _, _, rgb_bary_predtest_mesh = interpolateGridData(cc1_test, cc2_test, rgb_bary_pred_test,
-                                                              xlim=c1lim, ylim=c2lim,
-                                                              mesh_target=uniform_mesh_size, interp=interp_method, fill_val=0.3)
+                                                                                  mesh_target=uniform_mesh_size, interp=interp_method, fill_val=np.nan)
+        # If filter was False, make RGB values a 2D mesh grid, otherwise rgb_bary_pred_test is already a mesh grid
+        if not filter:
+            _, _, _, rgb_bary_predtest_mesh = interpolateGridData(cc1_test, cc2_test, rgb_bary_pred_test,
+                                                                  xlim=c1lim, ylim=c2lim,
+                                                                  mesh_target=uniform_mesh_size, interp=interp_method, fill_val=np.nan)
+        else:
+            rgb_bary_predtest_mesh = rgb_bary_pred_test
+
         t1 = t.time()
         print('\nFinished interpolating mesh data for barycentric map in {:.4f} s'.format(t1 - t0))
 
@@ -293,10 +326,13 @@ if plotslices:
         _, _, _, y_test_mesh = interpolateGridData(cc1_test, cc2_test, y_test,
                                                    xlim=c1lim,
                                                    ylim=c2lim,
-                                                   mesh_target=uniform_mesh_size, interp=interp_method, fill_val=0.3)
-        _, _, _, y_predtest_mesh = interpolateGridData(cc1_test, cc2_test, y_pred_test,
-                                                       xlim=c1lim, ylim=c2lim,
-                                                       mesh_target=uniform_mesh_size, interp=interp_method, fill_val=0.3)
+                                                   mesh_target=uniform_mesh_size, interp=interp_method, fill_val=np.nan)
+        # If filter was True, y_predtest_mesh has already been computed
+        if not filter:
+            _, _, _, y_predtest_mesh = interpolateGridData(cc1_test, cc2_test, y_pred_test,
+                                                           xlim=c1lim, ylim=c2lim,
+                                                           mesh_target=uniform_mesh_size, interp=interp_method, fill_val=np.nan)
+
         t1 = t.time()
         print('\nFinished interpolating mesh data for bij in {:.4f} s'.format(t1 - t0))
         # Accumulate slices to plot in one
@@ -335,36 +371,39 @@ if plotslices:
     # else:
     xlabel = '$r$ [m]'
     ylabel = '$z$ [m]'
-    barymap_test = PlotImageSlices3D(list_x=list_x, list_y=(cc1_all[0],)*len(cc1_all), list_z=cc2_all, list_rgb=rgb_test_all, name=figname, xlabel=zlabel,
-                                    ylabel=xlabel, zlabel=ylabel,
-                                    save=save_fig, show=show,
-                                    figdir=figdir,
-                                    figwidth='half',
-                                    figheight_multiplier=0.8,
-                                     viewangle=viewangle)
-    barymap_test.initializeFigure(constrained_layout=False)
-    barymap_test.plotFigure()
-    for i in range(len(slice_offset)):
-        patch = next(patches)
-        barymap_test.axes.add_patch(patch)
-        art3d.pathpatch_2d_to_3d(patch, z=slice_offset[i], zdir=zdir)
-
-    barymap_test.finalizeFigure(tight_layout=True, show_zlabel=False)
-    #
-    # figname = 'barycentric_{}_{}_predtest_{}'.format(test_casename, estimator_name, slicename)
-    # barymap_predtest = Plot2D_Image(val=rgb_bary_predtest_mesh, name=figname, xlabel=xlabel,
-    #                                 ylabel=ylabel,
+    # barymap_test = PlotImageSlices3D(list_x=list_x, list_y=(cc1_all[0],)*len(cc1_all), list_z=cc2_all, list_rgb=rgb_test_all, name=figname, xlabel=zlabel,
+    #                                 ylabel=xlabel, zlabel=ylabel,
     #                                 save=save_fig, show=show,
     #                                 figdir=figdir,
     #                                 figwidth='half',
-    #                                 rotate_img=True,
-    #                                 extent=(c1lim[0], c1lim[1], c2lim[0], c2lim[1]),
-    #                                 figheight_multiplier=1
-    #                                 )
-    # barymap_predtest.initializeFigure()
-    # barymap_predtest.plotFigure()
-    # barymap_predtest.finalizeFigure(showcb=False)
+    #                                 figheight_multiplier=0.9,
+    #                                  viewangle=viewangle)
+    # barymap_test.initializeFigure(constrained_layout=False)
+    # barymap_test.plotFigure()
+    # for i in range(len(slice_offset)):
+    #     patch = next(patches)
+    #     barymap_test.axes.add_patch(patch)
+    #     art3d.pathpatch_2d_to_3d(patch, z=slice_offset[i], zdir=zdir)
+    #
+    # barymap_test.finalizeFigure(tight_layout=True, show_zlabel=False)
 
+    figname = 'barycentric_{}_{}_predtest_{}'.format(test_casename, estimator_name, slicenames)
+    barymap_predtest = PlotImageSlices3D(list_x=list_x, list_y=(cc1_all[0],)*len(cc1_all), list_z=cc2_all,
+                                     list_rgb=rgb_pred_all, name=figname, xlabel=zlabel,
+                                     ylabel=xlabel, zlabel=ylabel,
+                                     save=save_fig, show=show,
+                                     figdir=figdir,
+                                     figwidth='half',
+                                     figheight_multiplier=0.9,
+                                     viewangle=viewangle)
+    barymap_predtest.initializeFigure(constrained_layout=False)
+    barymap_predtest.plotFigure()
+    for i in range(len(slice_offset)):
+        patch = next(patches)
+        barymap_predtest.axes.add_patch(patch)
+        art3d.pathpatch_2d_to_3d(patch, z=slice_offset[i], zdir=zdir)
+
+    barymap_predtest.finalizeFigure(tight_layout=True, show_zlabel=False)
 
     # Then bij plots
     # Create figure names for bij plots
@@ -383,7 +422,33 @@ if plotslices:
             bij_pred_all_ij.append(bij_pred_all[j][..., i])
             bij_test_all_ij.append(bij_test_all[j][..., i])
 
-        bij_pred_plot = PlotSurfaceSlices3D(list_x=list_x, list_y=(cc1_all[0],)*len(cc1_all), list_z=cc2_all, list_val=bij_pred_all_ij,
+        # True bij
+        bij_test_plot = PlotSurfaceSlices3D(list_x=list_x, list_y=(cc1_all[0],)*len(cc1_all), list_z=cc2_all, list_val=bij_test_all_ij,
+                                            val_lim=bijlims,
+                                            save=save_fig, show=show,
+                                            figheight_multiplier=figheight_multiplier,
+                                            figdir=figdir, name=fignames_test[i],
+                                            xlabel='$D$ [-]',
+                                            ylabel=xlabel,
+                                            zlabel=ylabel,
+                                            val_label=bijlabels[i],
+                                            figwidth='half',
+                                            viewangle=viewangle)
+        bij_test_plot.initializeFigure(constrained_layout=True, proj_type='persp')
+        bij_test_plot.plotFigure()
+        # bij_pred_plot.axes.yaxis.set_ticklabels([])
+        # bij_pred_plot.axes.zaxis.set_ticklabels([])
+        for i2 in range(len(slice_offset)):
+            patch = next(patches)
+            bij_test_plot.axes.add_patch(patch)
+            art3d.pathpatch_2d_to_3d(patch, z=slice_offset[i2], zdir=zdir)
+        #
+        # plt.show()
+        bij_test_plot.finalizeFigure(show_xylabel=(True, True), show_zlabel=False, tight_layout=False)
+
+        # bij predictions
+        bij_pred_plot = PlotSurfaceSlices3D(list_x=list_x, list_y=(cc1_all[0],)*len(cc1_all), list_z=cc2_all,
+                                            list_val=bij_pred_all_ij,
                                             val_lim=bijlims,
                                             save=save_fig, show=show,
                                             figheight_multiplier=figheight_multiplier,
@@ -398,10 +463,10 @@ if plotslices:
         bij_pred_plot.plotFigure()
         # bij_pred_plot.axes.yaxis.set_ticklabels([])
         # bij_pred_plot.axes.zaxis.set_ticklabels([])
-        for i in range(len(slice_offset)):
+        for i2 in range(len(slice_offset)):
             patch = next(patches)
             bij_pred_plot.axes.add_patch(patch)
-            art3d.pathpatch_2d_to_3d(patch, z=slice_offset[i], zdir=zdir)
+            art3d.pathpatch_2d_to_3d(patch, z=slice_offset[i2], zdir=zdir)
         #
         # plt.show()
         bij_pred_plot.finalizeFigure(show_xylabel=(True, True), show_zlabel=False, tight_layout=False)

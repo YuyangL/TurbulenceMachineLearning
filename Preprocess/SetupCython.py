@@ -5,8 +5,8 @@ import numpy
 
 system = 'linux'  # 'windows', 'linux'
 
-file_name = 'Tensor'
-# file_name = 'Feature'
+# file_name = 'Tensor'
+file_name = 'Feature'
 
 """
 python3 SetupCython.py build_ext --inplace
@@ -15,7 +15,7 @@ python3 SetupCython.py build_ext --inplace
 if system == 'linux':
     ext_modules = [Extension(file_name,
                              [file_name + '.pyx'],
-                             libraries=["m"],  # Unix-like specific
+                             libraries=["m"],  # Linux-like specific
                              extra_compile_args=['-ffast-math', '-O3', '-fopenmp'],
                              extra_link_args=['-fopenmp'])]
 else:

@@ -7,6 +7,9 @@ cpdef tuple getInvariantFeatureSet(np.ndarray sij, np.ndarray rij,
                                    np.ndarray k=*, np.ndarray eps=*,
                                    np.ndarray u=*, np.ndarray grad_u=*, double rho=*)
 
+cpdef tuple getSupplementaryInvariantFeatures(np.ndarray k, np.ndarray d, np.ndarray epsilon, np.ndarray nu, np.ndarray sij=*, np.ndarray r=*)
+
+cpdef np.ndarray getRadialTurbineDistance(np.ndarray ccx, np.ndarray ccy, np.ndarray ccz, list turblocs=*)
 
 
 

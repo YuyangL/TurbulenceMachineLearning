@@ -6,6 +6,8 @@
 import numpy as np
 cimport numpy as np
 from libc.math cimport fmax, ceil, sqrt, cbrt, sin, cos
+from scipy import ndimage
+from Preprocess.Tensor import contractSymmetricTensor
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=None,
                                 tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
@@ -222,7 +224,7 @@ cpdef tuple collapseMeshGridFeatures(np.ndarray meshgrid, bint infer_matrix_form
 
 cpdef np.ndarray reverseOldGridShape(np.ndarray arr, tuple shape_old, bint infer_matrix_form=True, tuple matrix_shape=(3, 3)):
     """
-    Reverse the given array to the old grid (but not value) shape, given the old array (both grid and value) shape.
+    Reverse the given array to the old mesh grid (but not value) shape, given the old array (both grid and value) shape.
     If infer_matrix_form is enabled, then the last 2D of given array will be checked whether it matches given matrix_shape. 
     If so, then grid shape is inferred to exclude the last 2D. Otherwise, grid shape is inferred to exclude the last D.
     If infer_matrix_form is disabled, then the given array is simply reversed/reshaped to the given shape (both grid and value shape).
@@ -349,7 +351,130 @@ cpdef np.ndarray rotateData(np.ndarray ndarr, double anglex=0., double angley=0.
     return ndarr
 
 
+cpdef tuple fieldSpatialSmoothing(np.ndarray[np.float_t, ndim=2] val,
+                                        np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray z=None,
+                                        tuple val_bnd=(-np.inf, np.inf), bint is_bij=False, double bij_bnd_multiplier=2.,
+                                        tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
+                                        double mesh_target=1e4):
+    """
+    Spatially smooth a field of shape (n_points, n_outputs). Therefore, if the field is a 2/3D mesh grid, it has to be flattened beforehand.
+    The workflow is:
+        1. Remove any component outside bound and set to NaN
+        2. Interpolate to 2/3D slice/volumetric mesh grid with nearest method
+        3. Use 2/3D Gaussian filter to smooth the mesh grid while ignoring NaN, for every component.
+    The output will be a spatially smoothed field mesh grid of mesh_target number of points.
+    The targeted mesh grid has to be at least 2D with x and y coordinates provided.
+    If is_bij, the diagonal and off-diagonal components of anisotropy tensor bij will be treated separately such that 
+    whatever is out of [-1/3, 2/3]*bij_bnd_multiplier diagonally is set to NaN;
+    whatever is out of [-1/2, 1/2]*bij_bnd_multiplier off-diagonally is set to NaN.
+    Otherwise, whatever is out of val_bnd is set to NaN.
+    If one or more of xlim, ylim, zlim is provided, the target mesh is limited to xlim, and/or ylim, and/or zlim range.
+    
+    :param val: Field value to be made mesh grid and smoothed. If is anisotropy tensor bij, is_bij should be True.  
+    :type val: ndarray[n_points x n_outputs]
+    :param x: X / 1st axis coordinate of val. 
+    :type x: ndarray[n_points]
+    :param y: Y / 2nd axis coordinate of val.
+    :type y: ndarray[n_points]
+    :param z: Z / 3rd axis coordinate of val.
+    :type z: ndarray[n_points] or None, optional (default=None)
+    :param val_bnd: Bound of val, whatever outside val_bnd is treated as NaN.
+    If is_bij, this has no effect.
+    :type val_bnd: tuple, optional (default=(-np.inf, np.inf))
+    :param is_bij: Whether the field value val is anisotropic tensor bij.
+    If True, val_bnd has no effect and 
+    diagonal bij outside bound [-1/3, 2/3]*bij_bnd_multiplier is set to NaN;
+    off-diagonal bij outside bound [-1/2, 1/2]*bij_bnd_multiplier is set to NaN.
+    :type is_bij: bool, optional (default=False)
+    :param bij_bnd_multiplier: When is_bij, multiplier to define bij's bound such that whatever outside bound is set to NaN.
+    If is_bij is False, this has no effect.
+    :type bij_bnd_multiplier: float, optional (default=2.)
+    :param xlim: Limit of X / 1st axis coordinate in the target mesh.
+    :type xlim: tuple, optional (default=(None, None))
+    :param ylim: Limit of Y / 2nd axis coordinate in the target mesh.
+    :type ylim: tuple, optional (default=(None, None))
+    :param zlim: Limit of Z / 3rd axis coordinate in the target mesh.
+    :type zlim: tuple, optional (default=(None, None))
+    :param mesh_target: Number of points for the target mesh. 
+    Then, number of points in each axis is determined automatically depending on length in each axis. 
+    :type mesh_target: float, optional (default=1e4)
+    
+    :return: Mesh grid coordinates of x, y, z, and spatially smoothed field mesh grid.
+    :rtype: (ndarray[3D mesh grid], ndarray[3D mesh grid], ndarray[3D mesh grid], ndarray[3D mesh grid x n_outputs])
+    or (ndarray[2D mesh grid], ndarray[2D mesh grid], ndarray[2D mesh grid], empty(1),  ndarray[2D mesh grid x n_outputs])
+    """
+    cdef unsigned int i
+    cdef tuple valshape = np.shape(val)
+    cdef unsigned int n_outputs = valshape[1]
 
+    # Step 1
+    if is_bij:
+        val = contractSymmetricTensor(val)
+        for i in range(n_outputs):
+            if i in (0, 3, 5):
+                val[:, i][val[:, i] > 2/3.*bij_bnd_multiplier] = np.nan
+                val[:, i][val[:, i] < -1/3.*bij_bnd_multiplier] = np.nan
+            else:
+                val[:, i][val[:, i] > 1/2.*bij_bnd_multiplier] = np.nan
+                val[:, i][val[:, i] < -1/2.*bij_bnd_multiplier] = np.nan
+
+    else:
+        for i in range(n_outputs):
+            val[:, i][val[:, i] > val_bnd[1]] = np.nan
+            val[:, i][val[:, i] < val_bnd[0]] = np.nan
+
+    # Step 2
+    xmesh, ymesh, zmesh, val_mesh = interpolateGridData(x, y, val, z=z, xlim=xlim, ylim=ylim, zlim=zlim,
+                                       mesh_target=mesh_target, interp="nearest", fill_val=np.nan)
+    # Step 3
+    for i in range(n_outputs):
+        val_mesh[..., i] = gaussianFilter(val_mesh[..., i])
+
+    return xmesh, ymesh, zmesh, val_mesh
+
+
+cpdef np.ndarray gaussianFilter(np.ndarray array, double sigma=2.):
+    """
+    Perform Gaussian filter to smooth an nD field. NaNs are ignored automatically. 
+    
+        array U         1   2   NaN 1   2    
+    auxiliary V     1   2   0   1   2    
+    auxiliary W     1   1   0   1   1
+    position        a   b   c   d   e
+    
+    filtered VV_b   = 0.25*V_a  + 0.50*V_b  + 0.25*V_c
+                    = 0.25*1    + 0.50*2    + 0
+                    = 1.25
+    
+    filtered WW_b   = 0.25*W_a  + 0.50*W_b  + 0.25*W_c
+                    = 0.25*1    + 0.50*1    + 0
+                    = 0.75
+    
+    ratio Z         = VV_b / WW_b  
+                    = (0.25*1 + 0.50*2) / (0.25*1    + 0.50*1)
+                    = 0.333*1 + 0.666*2
+                    = 1.666
+    
+    :param array: Array or mesh grid to perform Gaussian filtering.
+    :type array: ndarray of any shape
+    :param sigma: Standard deviation for Gaussian kernel. 
+    :type sigma: double, optional (default=2.)
+    
+    :return: Filtered array or mesh grid of the same shape as input
+    :rtype: ndarray
+    """
+    cdef np.ndarray v, vv, w, ww, arr_filtered
+    
+    v = array.copy()
+    v[np.isnan(array)] = 0.
+    vv = ndimage.gaussian_filter(v, sigma=sigma)
+    w = np.ones_like(array)
+    w[np.isnan(array)] = 0.
+    ww = ndimage.gaussian_filter(w, sigma=sigma)
+    arr_filtered = vv/ww
+
+    return arr_filtered
+    
 
 
 

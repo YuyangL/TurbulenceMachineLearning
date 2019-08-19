@@ -25,7 +25,7 @@ casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
 # Slice names for prediction and visualization
 slicenames = ('rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine')#, 'sevenDdownstreamTurbine')  # str
-zdir = 'x'
+zdir = 'y'
 slice_offset = (0, -1, -3)#, 7)
 set_types = 'auto'  # str
 time = 'last'  # str/float/int or 'last'

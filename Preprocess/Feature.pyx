@@ -8,7 +8,7 @@ cimport numpy as np
 from libc.stdio cimport printf
 from warnings import warn
 from Tensor cimport _mapVectorToAntisymmetricTensor
-from Tensor import contractSymmetricTensor
+from Tensor import contractSymmetricTensor, expandSymmetricTensor
 from Utility import collapseMeshGridFeatures
 
 
@@ -119,6 +119,118 @@ cpdef tuple getInvariantFeatureSet(np.ndarray sij, np.ndarray rij,
 
     return inv_set, labels
 
+
+cpdef tuple getSupplementaryInvariantFeatures(np.ndarray k, np.ndarray d, np.ndarray epsilon, np.ndarray nu, np.ndarray sij=None, np.ndarray r=None):
+    """
+    Calculate 3 or 4 supplementary mean flow features as done in 
+    Wu et al., Physics-Informed Machine Learning Approach for Augmenting Turbulence Models: A Comprehensive Framework.
+    1st feature is wall-distance based Re number;
+    2nd feature is turbulence intensity;
+    3rd feature is ratio of turbulent time-scale to mean strain time-scale.
+    If radial distance to (closest) turbine center, 4th feature is radial distance to (closest) turbine center based Re number.
+    If strain rate tensor Sij is provided, then normalization as well as non-dimensionalization is done.
+    
+    :param k: TKE array of any shape. Will be flattened.
+    :type k: ndarray
+    :param d: Wall distance array of any shape. Will be flattened.
+    :type d: ndarray
+    :param epsilon: Turbulent energy dissipation rate array of any shape. Will be flattened.
+    :type epsilon: ndarray
+    :param nu: Kinematic viscosity array of any shape. Will be flattened.
+    :type nu: ndarray
+    :param sij: Strain rate tensor Sij. If None, no non-dimensionalization is performed.
+    :type sij: ndarray[..., 6] or ndarray[..., 9] or ndarray[..., 3, 3] or None, optional (default=None)
+    :param r: Radial distant to (closest) turbine center.
+    :type r: ndarray or None, optional (default=None)
+    
+    :return: 3 or 4 supplementary features in a 2D array and labels
+    :rtype: (ndarray[n_samples x 3/4], tuple)
+    """
+    cdef np.ndarray[np.float_t] sijnorm
+    cdef np.ndarray[np.float_t, ndim=2] features
+    cdef tuple labels
+
+    # 1D array treatment
+    k = k.ravel()
+    d = d.ravel()
+    epsilon = epsilon.ravel()
+    if r is not None: r = r.ravel()
+    # Calculate ||Sij|| for normalization if provided
+    if isinstance(sij, np.ndarray):
+        sij, _ = collapseMeshGridFeatures(sij, collapse_matrix=True)
+        # Use full form of Sij for Frobenius norm
+        sij = expandSymmetricTensor(sij)
+        sijnorm = np.linalg.norm(sij, axis=1)
+    else:
+        sij = None
+
+    # Features array has shape (n_samples, n_features), 4 if radial distance to turbine center is given
+    features = np.empty((k.shape[0], 3)) if r is None else np.empty((k.shape[0], 4))
+    # Feature 1: Wall-distance based Re number
+    features[:, 0] = np.minimum(np.sqrt(k)*d/(50.*nu), 2.)
+    # Feature 2: Turbulence intensity
+    features[:, 1] = k if sij is None else k/(nu*sijnorm)
+    # Feature 3: Ratio of turbulent time-scale to mean strain time-scale
+    features[:, 2] = k/epsilon if sij is None else k/epsilon/(1/sijnorm)
+    if r is not None:
+        # Feature 4: Radial distance to turbine center based Re number
+        features[:, 3] = np.sqrt(k)*r/nu
+
+    # Labels depending on whether normalization is done and whether radial to distance turbine center is provided
+    if sij is None:
+        if r is None:
+            labels = ('min[sqrt(k)d/(50nu), 2]', 'k', 'k/epsilon')
+        else:
+            labels = ('min[sqrt(k)d/(50nu), 2]', 'k', 'k/epsilon', 'sqrt(k)r/nu')
+
+    else:
+        if r is None:
+            labels = ('min[sqrt(k)d/(50nu), 2]', 'k/(nu||Sij||)', 'k/epsilon/(1/||Sij||)')
+        else:
+            labels = ('min[sqrt(k)d/(50nu), 2]', 'k/(nu||Sij||)', 'k/epsilon/(1/||Sij||)', 'sqrt(k)r/nu')
+
+    return features, labels
+
+
+cpdef np.ndarray getRadialTurbineDistance(np.ndarray ccx, np.ndarray ccy, np.ndarray ccz, list turblocs=None):
+    """
+    Given x, y, z coordinates, calculate radial distance to (multiple) given turbine centers.
+    If multiple turbine locations are provided, the radial distance is to the closest turbine for each point.
+    
+    :param ccx: Cell center coordinates in x axis.
+    :type ccx: ndarray of any shape
+    :param ccy: Cell center coordinates in y axis.
+    :type ccy: ndarray of same shape as ccx
+    :param ccz: Cell center coordinates in z axis.
+    :type ccz: ndarray of same shape as ccx
+    :param turblocs: 1/2D list of all turbine centers, each row representing a turbine's x, y, z coordinate. 
+    If None, then default is a turbine at [0., 0., 0.].
+    :type turblocs: list or None, optional (default=None)
+    
+    :return: Radial distance to the given turbine center
+    :rtype: ndarray of same shape as ccx
+    """
+    if turblocs is None: turblocs = [0., 0., 0.]
+    cdef tuple old_shape = np.shape(ccx)
+    cdef np.ndarray r, ri
+    cdef np.ndarray turbarr = np.array(turblocs)
+    cdef unsigned int n_turbs = turbarr.shape[0]
+    cdef unsigned int i
+
+    # If only 1 turbine location provided, r is the radial distance to this turbine
+    if n_turbs == 1:
+        r = np.sqrt((ccx - turbarr[0])**2 + (ccy - turbarr[1])**2 + (ccz - turbarr[2])**2)
+    # Otherwise, r is the radial distance to the closest given turbine locations
+    else:
+        # Initial radial distance to the first given turbine center
+        r = np.sqrt((ccx - turbarr[0, 0])**2 + (ccy - turbarr[0, 1])**2 + (ccz - turbarr[0, 2])**2)
+        # For the other turbines
+        for i in range(n_turbs - 1):
+            ri = np.sqrt((ccx - turbarr[i, 0])**2 + (ccy - turbarr[i, 1])**2 + (ccz - turbarr[i, 2])**2)
+            # Find the minima comparing the old radial distance array with the new one calculated based on new turbine
+            r = np.minimum(r, ri)
+
+    return r
 
 
 

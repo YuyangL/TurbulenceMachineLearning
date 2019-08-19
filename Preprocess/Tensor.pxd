@@ -14,11 +14,13 @@ cpdef tuple getStrainAndRotationRateTensor(np.ndarray grad_u, np.ndarray tke=*, 
 
 cpdef np.ndarray[np.float_t, ndim=3] getInvariantBases(np.ndarray sij, np.ndarray rij, bint quadratic_only=*, bint is_scale=*, bint zero_trace=*)
 
+cpdef np.ndarray makeRealizable(np.ndarray bij)
+
 
 # -----------------------------------------------------
 # Supporting Functions, Not Intended to Be Called From Python
 # -----------------------------------------------------
-cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=2] labels)
+cdef np.ndarray[np.float_t, ndim=2] _makeRealizable(np.ndarray[np.float_t, ndim=2] bij)
 
 cdef np.ndarray[np.float_t, ndim=2] _mapVectorToAntisymmetricTensor(np.ndarray[np.float_t, ndim=2] vec, np.ndarray scaler=*)
 

@@ -3,11 +3,11 @@ import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from PostProcess_FieldData import FieldData
-from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData
-from Preprocess.Feature import getInvariantFeatureSet
+from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor
+from Preprocess.Feature import getInvariantFeatureSet, getSupplementaryInvariantFeatures
 from Utility import interpolateGridData
 from Preprocess.FeatureExtraction import splitTrainTestDataList
-from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearch,  performEstimatorGridSearch
+from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearch,  performEstimatorGridSearch, setupDecisionTreeGridSearchCV3
 import time as t
 # For Python 2.7, use cpickle
 try:
@@ -29,7 +29,8 @@ from matplotlib.patches import PathPatch
 from copy import copy
 from joblib import load, dump
 from tbnn import NetworkStructure, TBNN
-
+from sklearn.feature_selection import VarianceThreshold
+from scipy.interpolate import interp1d
 
 """
 User Inputs, Anything Can Be Changed Here
@@ -48,6 +49,8 @@ interp_method = "nearest"  # "nearest", "linear", "cubic"
 # Eddy-viscosity coefficient to convert omega to epsilon via
 # epsilon = Cmu*k*omega
 cmu = 0.09  # float
+# Kinematic viscosity for Re = 10595
+nu = 9.438414346389807e-05  # float
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
@@ -56,6 +59,8 @@ process_raw_field, process_invariants = False, False  # bool
 if process_invariants:
     # Absolute cap value for Sij and Rij; tensor basis Tij
     cap_sij_rij, cap_tij = 1e9, 1e9  # float/int
+
+cap_lam = 1e9
 
 
 """
@@ -66,22 +71,25 @@ calculate_features = False  # bool
 # Whether to split train and test data or directly read from pickle data
 split_train_test_data = False  # bool
 # Feature set number
-fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
+fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
+scaler = 'maxabs'  # 'maxabs', 'minmax', None
+# Whether remove low variance features
+var_threshold = 1e-4  # float
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
 train_model, save_estimator = True, True  # bool
 # Name of the ML estimator
-estimator_name = 'tbnn'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
+estimator_name = 'tbdt'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
-max_features = 0.8 # (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
+max_features = 1. # (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
 min_samples_leaf = 4  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
 min_samples_split = 16 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = 10#(3, 5)  # int
+max_depth = None#(3, 5)  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
@@ -93,18 +101,22 @@ g_cap = None  # int or float or None
 # Realizability iterator to shift predicted bij to be realizable
 realize_iter = 0  # int
 # For specific estimators only
+if estimator_name in ('TBDT', 'tbdt'):
+    tbkey = 'tree__tb'
 if estimator_name in ("TBRF", "tbrf"):
     n_estimators = 8  # int
     oob_score = True  # bool
     median_predict = True  # bool
     # What to do with bij novelties
     bij_novelty = 'excl'
+    tbkey = 'rf__tb'
 elif estimator_name in ("TBAB", "tbab"):
     n_estimators = 5  # int
     learning_rate = (0.1, 0.2)  # int
     loss = "square"  # 'linear'/'square'/'exponential'
     # What to do with bij novelties
     bij_novelty = 'lim'
+    tbkey = 'ab__tb'
 elif estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
     order = [0, 3, 1, 5, 4, 2]  # [4, 2, 5, 3, 1, 0]
@@ -116,9 +128,10 @@ elif estimator_name in ('TBGB', 'tbgb'):
     tol = 1e-4
     bij_novelty = 'excl'
     loss = 'ls'
+    tbkey = 'gb__tb'
 elif estimator_name in ('TBNN', 'tbnn'):
-    num_layers = 16  # Number of hidden layers in the TBNN
-    num_nodes = 32  # Number of nodes per hidden layer
+    num_layers = 8  # Number of hidden layers in the TBNN
+    num_nodes = 30  # Number of nodes per hidden layer
     max_epochs = 2000  # Max number of epochs during training
     min_epochs = 1000  # Min number of training epochs required
     interval = 100  # Frequency at which convergence is checked
@@ -134,7 +147,7 @@ test_fraction = 0.2  # float [0-1]
 # Whether verbose on GSCV. 0 means off, larger means more verbose
 gs_verbose = 2  # int
 # Number of n-fold cross validation
-cv = None # int or None
+cv = 5  # int or None
 
 
 """
@@ -312,8 +325,18 @@ if calculate_features:
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
     elif fs == 'grad(p)':
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_p=grad_p, u=u, grad_u=grad_u)
-    elif fs == 'grad(TKE)_grad(p)':
+    elif 'grad(TKE)_grad(p)' in fs:
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u, grad_u=grad_u)
+        if '+' in fs:
+            nu *= np.ones_like(k)
+            geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/' + "geometry.csv", delimiter=",")[:1000, :2]
+            # fperiodic = interp1d(geometry[:, 0], geometry[:, 1], kind='cubic')
+            # d0 = cc[:, 1] - fperiodic(cc[:, 0])
+            d1 = 3.036 - cc[:, 1]
+            # d = np.minimum(d0, d1)
+            d = d1
+            fs_data2, labels2 = getSupplementaryInvariantFeatures(k, d, epsilon, nu, sij)
+            fs_data = np.hstack((fs_data, fs_data2))
 
     # If only feature set 1 used for ML input, then do train test data split here
     if save_fields:
@@ -340,33 +363,55 @@ def transposeTensorBasis(tb):
 if split_train_test_data:
     # # Transpose Tij so that it's n_samples x n_outputs x n_bases
     # tb = transposeTensorBasis(tb)
+    if estimator_name == 'TBNN':
+        sij = expandSymmetricTensor(sij).reshape((-1, 3, 3))
+        rij = rij.reshape((-1, 3, 3))
+        x, x_mu, x_std = case.calcScalarBasis(sij, rij, is_train=True, cap=cap_lam, is_scale=True)
+    else:
+        # X is RANS invariant features
+        x = fs_data
 
-    # X is RANS invariant features
-    x = fs_data
     # y is LES bij interpolated to RANS grid
     y = bij_les
     # Train-test data split, incl. cell centers and Tij
     list_data_train, list_data_test = splitTrainTestDataList([cc, x, y, tb], test_fraction=test_fraction, seed=seed)
     if save_fields:
-        # Extra tuple treatment to list_data_t* that's already a tuple since savePickleData thinks tuple means multiple files
-        case.savePickleData(time, (list_data_train,), 'list_data_train_seed' + str(seed))
-        case.savePickleData(time, (list_data_test,), 'list_data_test_seed' + str(seed))
+        if estimator_name == 'TBNN':
+            # Extra tuple treatment to list_data_t* that's already a tuple since savePickleData thinks tuple means multiple files
+            case.savePickleData(time, (list_data_train,), 'list_data_train_seed' + str(seed) + '_TBNN')
+            case.savePickleData(time, (list_data_test,), 'list_data_test_seed' + str(seed) + '_TBNN')
+        else:
+            # Extra tuple treatment to list_data_t* that's already a tuple since savePickleData thinks tuple means multiple files
+            case.savePickleData(time, (list_data_train,), 'list_data_train_seed' + str(seed))
+            case.savePickleData(time, (list_data_test,), 'list_data_test_seed' + str(seed))
 
 # Else if directly read train and test data from pickle data
 else:
-    list_data_train = case.readPickleData(time, 'list_data_train_seed' + str(seed))
-    list_data_test = case.readPickleData(time, 'list_data_test_seed' + str(seed))
+    if estimator_name == 'TBNN':
+        list_data_train = case.readPickleData(time, 'list_data_train_seed' + str(seed) + '_TBNN')
+        list_data_test = case.readPickleData(time, 'list_data_test_seed' + str(seed) + '_TBNN')
+    else:
+        list_data_train = case.readPickleData(time, 'list_data_train_seed' + str(seed))
+        list_data_test = case.readPickleData(time, 'list_data_test_seed' + str(seed))
 
 cc_train, cc_test = list_data_train[0], list_data_test[0]
 ccx_train, ccy_train, ccz_train = cc_train[:, 0], cc_train[:, 1], cc_train[:, 2]
 ccx_test, ccy_test, ccz_test = cc_test[:, 0], cc_test[:, 1], cc_test[:, 2]
 x_train, y_train, tb_train = list_data_train[1:4]
 x_test, y_test, tb_test = list_data_test[1:4]
-# # Contract symmetric tensors to 6 components in case of 9 components
-# y_train, y_test = contractSymmetricTensor(y_train), contractSymmetricTensor(y_test)
-# tb_train, tb_test = transposeTensorBasis(tb_train), transposeTensorBasis(tb_test)
-# tb_train, tb_test = contractSymmetricTensor(tb_train), contractSymmetricTensor(tb_test)
-# tb_train, tb_test = transposeTensorBasis(tb_train), transposeTensorBasis(tb_test)
+if estimator_name == 'TBNN':
+    # Swap n_bases and n_outputs axes as TBNN requires Tij of shape (n_samples, n_bases, n_outputs)
+    tb_train = np.swapaxes(tb_train, 1, 2)
+    tb_test = np.swapaxes(tb_test, 1, 2)
+
+
+# """
+# Remove Low Variance Features
+# """
+# if feat_sel:
+#     selector = VarianceThreshold(threshold=var_threshold)
+#     x_train = selector.fit_transform(x_train)
+#     x_test = selector.transform(x_test)
 
 
 """
@@ -383,7 +428,7 @@ if train_model:
                                            g_cap=g_cap,
                                            realize_iter=realize_iter)
     if estimator_name == 'TBDT' and cv is not None:
-        regressor, tuneparams = setupDecisionTreeGridSearchCV(gs_max_features=max_features, gs_min_samples_split=min_samples_split,
+        regressor, pipeline, tuneparams, tbkey = setupDecisionTreeGridSearchCV3(gs_max_features=max_features, gs_min_samples_split=min_samples_split,
                                                                gs_alpha_g_split=alpha_g_split,
                                                                min_samples_leaf=min_samples_leaf,
                                                                alpha_g_fit=alpha_g_fit,
@@ -391,7 +436,10 @@ if train_model:
                                                   tb_verbose=tb_verbose, split_verbose=split_verbose, rand_state=seed, gscv_verbose=gs_verbose,
                                                                cv=cv, max_depth=max_depth,
                                                                g_cap=g_cap,
-                                                               realize_iter=realize_iter)
+                                                               realize_iter=realize_iter,
+                                                               var_threshold=var_threshold,
+                                                                               refit=True,
+                                                                               scaler=scaler)
     elif estimator_name == 'TBRF':
         regressor, tuneparams = setupRandomForestGridSearch(n_estimators=n_estimators, max_depth=max_depth, gs_min_samples_split=min_samples_split,
                                           min_samples_leaf=min_samples_leaf, gs_max_features=max_features,
@@ -402,15 +450,17 @@ if train_model:
                                           gs_alpha_g_split=alpha_g_split, g_cap=g_cap,
                                           realize_iter=realize_iter,
                                           median_predict=median_predict,
-                                          bij_novelty=bij_novelty)
+                                          bij_novelty=bij_novelty,
+                                                            refit=True)
     elif estimator_name == 'TBAB':
-        regressor, tuneparams = setupAdaBoostGridSearch(gs_max_features=max_features, gs_max_depth=max_depth, gs_alpha_g_split=alpha_g_split,                             gs_learning_rate=learning_rate,
+        regressor, base_estimator, tuneparams = setupAdaBoostGridSearch(gs_max_features=max_features, gs_max_depth=max_depth, gs_alpha_g_split=alpha_g_split,                             gs_learning_rate=learning_rate,
                                                         cv=cv,
                                                         gscv_verbose=gs_verbose,
                                       n_estimators=n_estimators,
                                       loss=loss,
                                       rand_state=seed,
-                                      bij_novelty=bij_novelty)
+                                      bij_novelty=bij_novelty,
+                                                                        refit=True)
     elif estimator_name == 'TBRC':
         regressor = RegressorChain(base_estimator=base_estimator,
                                    order=order,
@@ -441,23 +491,27 @@ if train_model:
                                               bij_novelty=bij_novelty,
                                               loss=loss)
     elif estimator_name == 'TBNN':
-        # Swap n_bases and n_outputs axes as TBNN requires Tij of shape (n_samples, n_bases, n_outputs)
-        tb_train = np.swapaxes(tb_train, 1, 2)
-        tb_test = np.swapaxes(tb_test, 1, 2)
         # Define network structure
         structure = NetworkStructure()
         structure.set_num_layers(num_layers)
         structure.set_num_nodes(num_nodes)
         # Initialize and fit TBNN
         regressor = TBNN(structure)
+        # Optimal according to Ling et al. (2016)
+        regressor.set_min_learning_rate(2.5e-7)
+        regressor.set_train_fraction(1. - test_fraction)
         regressor.fit(x_train, tb_train, y_train, max_epochs=max_epochs, min_epochs=min_epochs, interval=interval,
                  average_interval=average_interval)
     else:
         regressor = base_estimator
 
     t0 = t.time()
+    fit_param, test_param = {}, {}
+    fit_param[tbkey] = tb_train
+    test_param[tbkey] = tb_test
     if estimator_name in ('TBDT', 'TBAB', 'TBRC', 'TBGB'):
-        regressor.fit(x_train, y_train, tb=tb_train)
+        # regressor.fit(x_train, y_train, tb=tb_train)
+        regressor.fit(x_train, y_train, **fit_param)
     else:
         performEstimatorGridSearch(regressor, tuneparams, x_train, y_train, tb_train, x_test, y_test, tb_test, verbose=gs_verbose, refit=True)
 
@@ -520,7 +574,7 @@ xy_bary_pred_train, rgb_bary_pred_train = getBarycentricMapData(eigval_pred_trai
 
 # Manually limit RGB values
 rgb_bary_pred_test[rgb_bary_pred_test > 1.] = 1.
-rgb_bary_pred_train[rgb_bary_pred_train > 1,] = 1.
+rgb_bary_pred_train[rgb_bary_pred_train > 1.] = 1.
 t1 = t.time()
 print('\nFinished getting Barycentric map data in {:.4f} s'.format(t1 - t0))
 
