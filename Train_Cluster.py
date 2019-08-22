@@ -56,7 +56,7 @@ rf_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002),
                  median_predict=True,
                  bij_novelty='excl')
 # For TBAB only
-ab_kwargs = dict(gs_max_depth=(5, 10, 15),
+ab_kwargs = dict(gs_max_depth=(5, 10),
                  gs_learning_rate=(0.1, 0.2, 0.4),
                  min_samples_split=0.002,
                  n_estimators=100,

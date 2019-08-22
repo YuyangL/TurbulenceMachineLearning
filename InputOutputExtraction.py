@@ -126,16 +126,15 @@ if casename == 'ALM_N_H_ParTurb':
                                            'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                            'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
                                            'sevenDdownstreamTurbines')
-    # 1D downstream: southern, northern; 3D downstream: southern, northern; 7D downstream: southern, northern
-    # TODO: 2D list here
-    turbloc = (2165.916, 1661.916, 2024.89, 1519.776, 1733.262, 1228.148)
+    # Southern turbine; northern turbine center coordinates, 3D apart from each other
+    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 elif casename == 'ALM_N_L_ParTurb':
     if time == 'latestTime': time = '23000.07'
     if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                            'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                            'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
                                            'sevenDdownstreamTurbines')
-
+    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 elif casename == 'ALM_N_H_OneTurb':
     if time == 'latestTime': time = '24995.0438025'
     if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
@@ -146,9 +145,9 @@ elif casename == 'ALM_N_H_OneTurb':
                                          'sevenDdownstreamTurbine_H',
                                          'oneDdownstreamTurbine_V',
                                          'threeDdownstreamTurbine_V',
-                                         'sevenDdownstreamTurbine_V'
-                                         )
-
+                                         'sevenDdownstreamTurbine_V')
+    # 1 turbine center coordinate at the upwind turbine location
+    turblocs = [1118.083, 1279.5, 90.]
 elif casename == 'ALM_N_H_SeqTurb':
     if time == 'latestTime': time = '25000.1638025'
     if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
@@ -156,7 +155,8 @@ elif casename == 'ALM_N_H_SeqTurb':
                                            'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
                                            'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
                                            'sixDdownstreamTurbineTwo')
-
+    # Upwind turbine; downwind turbine center coordinates, 7D apart
+    turblocs = [[1118.083, 1279.5, 90.], [1881.917, 1720.5, 90.]]
 elif casename == 'ALM_N_L_SeqTurb':
     if time == 'latestTime': time = '23000.135'
     if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
@@ -164,16 +164,17 @@ elif casename == 'ALM_N_L_SeqTurb':
                                            'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
                                            'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
                                            'sixDdownstreamTurbineTwo')
-
+    turblocs = [[1118.083, 1279.5, 90.], [1881.917, 1720.5, 90.]]
 elif casename == 'ALM_N_L_ParTurb_Yaw':
     if time == 'latestTime': time = '23000.065'
     if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                            'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                            'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
                                            'sevenDdownstreamTurbines')
-
+    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 elif casename == 'ALM_N_H_ParTurb_HiSpeed':
     if time == 'latestTime': time = ''
+    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 
 # Automatically define the confined domain region
 if confine and confinezone is not None:
@@ -403,11 +404,14 @@ if calculate_features:
     elif 'grad(TKE)_grad(p)' in fs:
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u,
                                                  grad_u=grad_u)
+        # 4 additional invariant features
         if '+' in fs:
             nu *= np.ones_like(k)
-            r = getRadialTurbineDistance(cc[:, 0], cc[:, 1], cc[:, 2])
-
-
+            # Radial distance to (closest) turbine center
+            r = getRadialTurbineDistance(cc[:, 0], cc[:, 1], cc[:, 2], turblocs=turblocs)
+            fs_data2, labels2 = getSupplementaryInvariantFeatures(k, cc[:, 2], epsilon, nu, sij, r=r)
+            fs_data = np.hstack((fs_data, fs_data2))
+            del nu, r, fs_data2
 
     del sij, rij, grad_k, k, epsilon, grad_u, u, grad_p
     # If only feature set 1 used for ML input, then do train test data split here

@@ -192,41 +192,44 @@ cpdef tuple getSupplementaryInvariantFeatures(np.ndarray k, np.ndarray d, np.nda
     return features, labels
 
 
-cpdef np.ndarray getRadialTurbineDistance(np.ndarray ccx, np.ndarray ccy, np.ndarray ccz, list turblocs=None):
+cpdef np.ndarray getRadialTurbineDistance(np.ndarray x, np.ndarray y, np.ndarray z=None, list turblocs=None):
     """
-    Given x, y, z coordinates, calculate radial distance to (multiple) given turbine centers.
+    Given x, y, (z) coordinates, calculate radial distance to (multiple) given turbine centers.
+    If z is not provided, only horizontal distance to (closest) turbine center is computed.
     If multiple turbine locations are provided, the radial distance is to the closest turbine for each point.
     
-    :param ccx: Cell center coordinates in x axis.
-    :type ccx: ndarray of any shape
-    :param ccy: Cell center coordinates in y axis.
-    :type ccy: ndarray of same shape as ccx
-    :param ccz: Cell center coordinates in z axis.
-    :type ccz: ndarray of same shape as ccx
+    :param x: Cell center coordinates in x axis.
+    :type x: ndarray of any shape
+    :param y: Cell center coordinates in y axis.
+    :type y: ndarray of same shape as x
+    :param z: Cell center coordinates in z axis. If None, only horizontal distance to turbine center is considered.
+    :type z: ndarray of same shape as x or None, optional (default=None)
     :param turblocs: 1/2D list of all turbine centers, each row representing a turbine's x, y, z coordinate. 
     If None, then default is a turbine at [0., 0., 0.].
     :type turblocs: list or None, optional (default=None)
     
-    :return: Radial distance to the given turbine center
-    :rtype: ndarray of same shape as ccx
+    :return: Radial or horizontal radial distance to the given turbine center
+    :rtype: ndarray of same shape as x
     """
     if turblocs is None: turblocs = [0., 0., 0.]
-    cdef tuple old_shape = np.shape(ccx)
+    cdef tuple old_shape = np.shape(x)
     cdef np.ndarray r, ri
-    cdef np.ndarray turbarr = np.array(turblocs)
+    cdef np.ndarray turbarr = np.atleast_2d(turblocs)
     cdef unsigned int n_turbs = turbarr.shape[0]
     cdef unsigned int i
 
+    # If z is None, only horizontal distance to turbine center is considered
+    if z is None: z = 0.
     # If only 1 turbine location provided, r is the radial distance to this turbine
     if n_turbs == 1:
-        r = np.sqrt((ccx - turbarr[0])**2 + (ccy - turbarr[1])**2 + (ccz - turbarr[2])**2)
+        r = np.sqrt((x - turbarr[0])**2 + (y - turbarr[1])**2 + (z - turbarr[2])**2)
     # Otherwise, r is the radial distance to the closest given turbine locations
     else:
         # Initial radial distance to the first given turbine center
-        r = np.sqrt((ccx - turbarr[0, 0])**2 + (ccy - turbarr[0, 1])**2 + (ccz - turbarr[0, 2])**2)
+        r = np.sqrt((x - turbarr[0, 0])**2 + (y - turbarr[0, 1])**2 + (z - turbarr[0, 2])**2)
         # For the other turbines
         for i in range(n_turbs - 1):
-            ri = np.sqrt((ccx - turbarr[i, 0])**2 + (ccy - turbarr[i, 1])**2 + (ccz - turbarr[i, 2])**2)
+            ri = np.sqrt((x - turbarr[i, 0])**2 + (y - turbarr[i, 1])**2 + (z - turbarr[i, 2])**2)
             # Find the minima comparing the old radial distance array with the new one calculated based on new turbine
             r = np.minimum(r, ri)
 
