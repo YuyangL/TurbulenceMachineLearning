@@ -19,3 +19,5 @@ cpdef tuple fieldSpatialSmoothing(np.ndarray[np.float_t, ndim=2] val,
                                        double mesh_target=*)
 
 cpdef np.ndarray gaussianFilter(np.ndarray array, double sigma=*)
+
+# def timer(func)

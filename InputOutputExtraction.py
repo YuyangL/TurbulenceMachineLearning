@@ -65,6 +65,8 @@ if confine:
 cap_sijrij, cap_tij = 1e9, 1e9  # float/int
 # Enforce 0 trace when computing Tij?
 tij_0trace = False
+# Whether scale Tij like done in Ling et al. (2016), useless for tree models
+scale_tb = False
 # Kinematic viscosity
 nu = 1e-5  # float
 
@@ -104,7 +106,7 @@ set_types = 'auto'
 Process User Inputs, No Need to Change
 """
 # Average fields of interest for reading and processing
-if fs == 'grad(TKE)_grad(p)':
+if 'grad(TKE)_grad(p)' in fs:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
               'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg') 
 elif fs == 'grad(TKE)':
@@ -367,7 +369,7 @@ if process_invariants:
     print('\nFinished Sij and Rij calculation in {:.4f} s'.format(t1 - t0))
     # Step 2: 10 invariant bases scaled Tij, shape (n_samples, 6, 10)
     t0 = t.time()
-    tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=True)
+    tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=scale_tb)
     t1 = t.time()
     print('\nFinished Tij calculation in {:.4f} s'.format(t1 - t0))
     # Step 3: anisotropy tensor bij, shape (n_samples, 6)
@@ -407,8 +409,9 @@ if calculate_features:
         # 4 additional invariant features
         if '+' in fs:
             nu *= np.ones_like(k)
-            # Radial distance to (closest) turbine center
-            r = getRadialTurbineDistance(cc[:, 0], cc[:, 1], cc[:, 2], turblocs=turblocs)
+            # Radial distance to (closest) turbine center.
+            # Don't supply z to get horizontal radial distance
+            r = getRadialTurbineDistance(cc[:, 0], cc[:, 1], z=None, turblocs=turblocs)
             fs_data2, labels2 = getSupplementaryInvariantFeatures(k, cc[:, 2], epsilon, nu, sij, r=r)
             fs_data = np.hstack((fs_data, fs_data2))
             del nu, r, fs_data2
@@ -547,8 +550,8 @@ if process_slices:
         # according to the definition in Eq 5.65, Eq 5.66 in Sagaut (2006)
         sij, rij = getStrainAndRotationRateTensor(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
         # Step 2: 10 invariant bases scaled Tij, shape (n_samples, 6)
-        # with scaling of 1/[1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000]
-        tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=True)
+        # possibly with scaling of 1/[1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000]
+        tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=scale_tb)
         # Step 3: anisotropy tensor bij, shape (n_samples, 6)
         bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
         # # Step 4: evaluate 10 Tij coefficients g as output y
@@ -570,9 +573,18 @@ if process_slices:
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
         elif fs == 'grad(p)':
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_p=grad_p, u=u, grad_u=grad_u)
-        elif fs == 'grad(TKE)_grad(p)':
+        elif 'grad(TKE)_grad(p)' in fs:
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u,
                                                      grad_u=grad_u)
+            # 4 additional invariant features
+            if '+' in fs:
+                nulist = nu*np.ones_like(k)
+                # Radial distance to (closest) turbine center.
+                # Don't supply z to get horizontal radial distance
+                r = getRadialTurbineDistance(list_slicecoor[slice_type][:, 0], list_slicecoor[slice_type][:, 1], z=None, turblocs=turblocs)
+                fs_data2, labels2 = getSupplementaryInvariantFeatures(k, list_slicecoor[slice_type][:, 2], epsilon, nulist, sij, r=r)
+                fs_data = np.hstack((fs_data, fs_data2))
+                del nulist, r, fs_data2
 
         # If only feature set 1 used for ML input, then do train test data split here
         if save_fields:
@@ -637,7 +649,7 @@ if process_sets:
                     uuprime2 = setcase.data[set]
 
         sij, rij = getStrainAndRotationRateTensor(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
-        tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=True)
+        tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=scale_tb)
         bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
         if save_fields:
             case.savePickleData(time, sij, fileNames=('Sij_' + set_type))
@@ -650,9 +662,86 @@ if process_sets:
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
         elif fs == 'grad(p)':
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_p=grad_p, u=u, grad_u=grad_u)
-        elif fs == 'grad(TKE)_grad(p)':
+        elif 'grad(TKE)_grad(p)' in fs:
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u,
                                                      grad_u=grad_u)
+            # 4 additional invariant features
+            if '+' in fs:
+                nulist = nu*np.ones_like(k)
+                # If horizontal line
+                if '_H' in set_type:
+                    # Get the origion coordinates in x, y
+                    if 'oneDdownstreamTurbine' in set_type:
+                        # If 2nd turbine in SeqTurb.
+                        # Else if ParTurb or OneTurb or 1st turbine in SeqTurb, origin is the same
+                        orig = (1288.69, 3000.) if 'Two' in set_type else (270.244, 3000.)
+                    elif 'threeDdownstreamTurbine' in set_type:
+                        orig = (1579.674, 3000.) if 'Two' in set_type else (561.228, 3000.)
+                    # 6D downstream only exists for 2nd turbine in SeqTurb
+                    elif 'sixDdownstreamTurbineTwo' in set_type:
+                        orig = (2016.151, 3000.)
+                    # 7D downstream only exists in ParTurb and OneTurb
+                    elif 'sevenDdownstreamTurbine' in set_type:
+                        orig = (1143.198, 3000.)
+
+                    xline = orig[0] + distance*np.sin(rotz)
+                    yline = orig[1] - distance*np.cos(rotz)
+                    zline = np.ones_like(distance)*90.
+                # Else if vertical line
+                else:
+                    if 'oneDdownstreamTurbine' in set_type:
+                        if 'Two' in set_type:
+                            xline = np.ones_like(distance)*1991.036
+                            yline = np.ones_like(distance)*1783.5
+                        elif 'Southern' in set_type:
+                            xline = np.ones_like(distance)*1353.202
+                            yline = np.ones_like(distance)*1124.262
+                        elif 'Northern' in set_type:
+                            xline = np.ones_like(distance)*1101.202
+                            yline = np.ones_like(distance)*1560.738
+                        # 1st turbine in SeqTurb is same as OneTurb
+                        else:
+                            xline = np.ones_like(distance)*1227.702
+                            yline = np.ones_like(distance)*1342.5
+
+                    elif 'threeDdownstreamTurbine' in set_type:
+                        if 'Two' in set_type:
+                            xline = np.ones_like(distance)*2209.275
+                            yline = np.ones_like(distance)*1909.5
+                        elif 'Southern' in set_type:
+                            xline = np.ones_like(distance)*1571.44
+                            yline = np.ones_like(distance)*1250.262
+                        elif 'Northern' in set_type:
+                            xline = np.ones_like(distance)*1319.44
+                            yline = np.ones_like(distance)*1686.738
+                        else:
+                            xline = np.ones_like(distance)*1445.44
+                            yline = np.ones_like(distance)*1468.5
+
+                    # Only for 2nd turbine in SeqTurb
+                    elif 'sixDdownstreamTurbineTwo' in set_type:
+                        xline = np.ones_like(distance)*2536.632
+                        yline = np.ones_like(distance)*2098.5
+                    elif 'sevenDdownstreamTurbine' in set_type:
+                        if 'Southern' in set_type:
+                            xline = np.ones_like(distance)*2007.917
+                            yline = np.ones_like(distance)*1502.262
+                        elif 'Northern' in set_type:
+                            xline = np.ones_like(distance)*1755.917
+                            yline = np.ones_like(distance)*1938.738
+                        # Otherwise for OneTurb
+                        else:
+                            xline = np.ones_like(distance)*1881.917
+                            yline = np.ones_like(distance)*1720.5
+
+                    zline = distance
+
+                # Radial distance to (closest) turbine center.
+                # Again, don't supply z to get horizontal radial distance
+                r = getRadialTurbineDistance(xline, yline, z=None, turblocs=turblocs)
+                fs_data2, labels2 = getSupplementaryInvariantFeatures(k, zline, epsilon, nulist, sij, r=r)
+                fs_data = np.hstack((fs_data, fs_data2))
+                del nulist, r, fs_data2
 
         if save_fields:
             case.savePickleData(time, fs_data, fileNames=('FS_' + fs + '_' + set_type))

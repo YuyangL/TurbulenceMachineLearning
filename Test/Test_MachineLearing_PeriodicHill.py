@@ -7,7 +7,7 @@ from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expa
 from Preprocess.Feature import getInvariantFeatureSet, getSupplementaryInvariantFeatures
 from Utility import interpolateGridData
 from Preprocess.FeatureExtraction import splitTrainTestDataList
-from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearch,  performEstimatorGridSearch, setupDecisionTreeGridSearchCV4
+from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearchCV, setupGradientBoostGridSearchCV, performEstimatorGridSearch, performEstimatorGridSearchCV
 import time as t
 # For Python 2.7, use cpickle
 try:
@@ -31,6 +31,7 @@ from joblib import load, dump
 from tbnn import NetworkStructure, TBNN
 from sklearn.feature_selection import VarianceThreshold
 from scipy.interpolate import interp1d
+from tempfile import mkdtemp
 
 """
 User Inputs, Anything Can Be Changed Here
@@ -75,24 +76,24 @@ fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
 scaler = None  # 'maxabs', 'minmax', None
 # Whether remove low variance features
 var_threshold = -1  # float
-rf_selector = False
+rf_selector = True
 rf_selector_n_estimators = 1000
-rf_selector_threshold = '0.1*median'  # 'median', 'mean', None
+rf_selector_threshold = '0.25*median'  # 'median', 'mean', None
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
 train_model, save_estimator = True, True  # bool
 # Name of the ML estimator
-estimator_name = 'tbrf'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
+estimator_name = 'tbdt'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
-max_features = 1. # (0.8, 1.)  # list/tuple(int / float 0-1) or int / float 0-1
+max_features = 1.#(2/3., 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
 min_samples_leaf = 2  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
 min_samples_split = 0.002 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = None#(3, 5)  # int
+max_depth = 5#(3, 5)  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
@@ -112,6 +113,7 @@ if estimator_name in ("TBRF", "tbrf"):
     median_predict = True  # bool
     # What to do with bij novelties
     bij_novelty = None  # 'excl', 'reset', None
+    return_all_predictions = False
     tbkey = 'rf__tb'
 elif estimator_name in ("TBAB", "tbab"):
     n_estimators = 16  # int
@@ -124,13 +126,13 @@ elif estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
     order = [0, 3, 1, 5, 4, 2]  # [4, 2, 5, 3, 1, 0]
 elif estimator_name in ('TBGB', 'tbgb'):
-    n_estimators = 10
-    learning_rate = 1
-    subsample = 1
-    n_iter_no_change = None
-    tol = 1e-4
+    n_estimators = 16
+    learning_rate = 0.1
+    subsample = 0.8
+    n_iter_no_change = 3
+    tol = 1e-8
     bij_novelty = None  # 'reset', None
-    loss = 'ls'
+    loss = 'huber'
     tbkey = 'gb__tb'
 elif estimator_name in ('TBNN', 'tbnn'):
     num_layers = 8  # Number of hidden layers in the TBNN
@@ -419,6 +421,7 @@ if estimator_name == 'TBNN':
 Machine Learning Training
 """
 if train_model:
+    # cachedir = mkdtemp()
     base_estimator = DecisionTreeRegressor(presort=presort, max_depth=max_depth, tb_verbose=tb_verbose,
                                            min_samples_leaf=min_samples_leaf,
                                            min_samples_split=min_samples_split,
@@ -429,66 +432,69 @@ if train_model:
                                            g_cap=g_cap,
                                            realize_iter=realize_iter)
     if estimator_name == 'TBDT' and cv is not None:
-        regressor, pipeline, tuneparams, tbkey = setupDecisionTreeGridSearchCV4(gs_max_features=max_features, gs_min_samples_split=min_samples_split,
+        regressor_gs, regressor, tuneparams, tbkey = setupDecisionTreeGridSearchCV(gs_max_features=max_features, gs_min_samples_split=min_samples_split,
                                                                gs_alpha_g_split=alpha_g_split,
                                                                min_samples_leaf=min_samples_leaf,
                                                                alpha_g_fit=alpha_g_fit,
                                                   presort=presort, split_finder=split_finder,
-                                                  tb_verbose=tb_verbose, split_verbose=split_verbose, rand_state=seed, gscv_verbose=gs_verbose,
+                                                  tb_verbose=tb_verbose, split_verbose=split_verbose, rand_state=seed, gs_verbose=gs_verbose,
                                                                cv=cv, max_depth=max_depth,
                                                                g_cap=g_cap,
                                                                realize_iter=realize_iter,
                                                                var_threshold=var_threshold,
-                                                                               refit=True,
                                                                                scaler=scaler,
-                                                                                rf_selector=rf_selector,
                                                                                 rf_selector_n_estimators=rf_selector_n_estimators,
-                                                                                rf_selector_threshold=rf_selector_threshold)
+                                                                                rf_selector_threshold=rf_selector_threshold,
+                                                                               pipeline_cachedir=None)
     elif estimator_name == 'TBRF':
-        regressor, tuneparams, tbkey = setupRandomForestGridSearch(n_estimators=n_estimators, max_depth=max_depth, gs_min_samples_split=min_samples_split,
+        regressor_gs, regressor, tuneparams, tbkey = setupRandomForestGridSearch(n_estimators=n_estimators, max_depth=max_depth, gs_min_samples_split=min_samples_split,
                                           min_samples_leaf=min_samples_leaf, gs_max_features=max_features,
                                           oob_score=oob_score, n_jobs=-1,
-                                          rand_state=seed, verbose=gs_verbose,
+                                          rand_state=seed, gs_verbose=gs_verbose,
                                           tb_verbose=tb_verbose, split_finder=split_finder,
                                           split_verbose=split_verbose, alpha_g_fit=alpha_g_fit,
                                           gs_alpha_g_split=alpha_g_split, g_cap=g_cap,
                                           realize_iter=realize_iter,
                                           median_predict=median_predict,
-                                          bij_novelty=bij_novelty,
+                                          bij_novelty=None,
                                                                    var_threshold=var_threshold,
-                                                                   scaler=scaler)
+                                                                   scaler=scaler,
+                                                                   rf_selector_n_estimators=rf_selector_n_estimators,
+                                                                   rf_selector_threshold=rf_selector_threshold)
     elif estimator_name == 'TBAB':
-        regressor, base_estimator, tuneparams, tbkey = setupAdaBoostGridSearch(gs_max_features=max_features, gs_max_depth=max_depth, gs_alpha_g_split=alpha_g_split,                             gs_learning_rate=learning_rate,
+        regressor_gs, regressor, tuneparams, tbkey = setupAdaBoostGridSearchCV(gs_max_features=max_features, gs_max_depth=max_depth, gs_alpha_g_split=alpha_g_split,                             gs_learning_rate=learning_rate,
                                                         cv=cv,
-                                                        gscv_verbose=gs_verbose,
+                                                        gs_verbose=gs_verbose,
                                       n_estimators=n_estimators,
                                       loss=loss,
                                       rand_state=seed,
                                       bij_novelty=bij_novelty,
-                                                                        refit=True,
                                                                         scaler=scaler,
-                                                                        var_threshold=var_threshold)
+                                                                        var_threshold=var_threshold,
+                                                                               rf_selector_n_estimators=rf_selector_n_estimators,
+                                                                               rf_selector_threshold=rf_selector_threshold,
+                                                                               split_finder=split_finder, split_verbose=split_verbose)
     elif estimator_name == 'TBRC':
         regressor = RegressorChain(base_estimator=base_estimator,
                                    order=order,
                                    cv=cv,
                                    random_state=seed)
     elif estimator_name == 'TBGB':
-        regressor = GradientBoostingRegressor(learning_rate=learning_rate,
+        regressor_gs, regressor, tuneparams, tbkey = setupGradientBoostGridSearchCV(gs_learning_rate=learning_rate,
                                               n_estimators=n_estimators,
                                               subsample=subsample,
                                               criterion='mse',
                                               min_samples_split=min_samples_split,
                                               min_samples_leaf=min_samples_leaf,
-                                              max_depth=max_depth,
+                                              gs_max_depth=max_depth,
                                               random_state=seed,
-                                              max_features=max_features,
-                                              verbose=gs_verbose,
+                                              gs_max_features=max_features,
+                                              gs_verbose=gs_verbose,
                                               presort=presort,
                                               n_iter_no_change=n_iter_no_change,
                                               tol=tol,
                                               init='zero',
-                                              alpha_g_split=alpha_g_split,
+                                              gs_alpha_g_split=alpha_g_split,
                                               alpha_g_fit=alpha_g_fit,
                                               realize_iter=realize_iter,
                                               tb_verbose=tb_verbose,
@@ -496,7 +502,11 @@ if train_model:
                                               split_finder=split_finder,
                                               g_cap=g_cap,
                                               bij_novelty=bij_novelty,
-                                              loss=loss)
+                                              loss=loss,
+                                                                                    scaler=scaler,
+                                                                                    var_threshold=var_threshold,
+                                                                                    rf_selector_n_estimators=rf_selector_n_estimators,
+                                                                                    rf_selector_threshold=rf_selector_threshold)
     elif estimator_name == 'TBNN':
         # Define network structure
         structure = NetworkStructure()
@@ -515,16 +525,18 @@ if train_model:
     t0 = t.time()
     fit_param, test_param = {}, {}
     fit_param[tbkey] = tb_train
-    test_param[tbkey] = tb_test
+    # test_param[tbkey] = tb_test
     if estimator_name in ('TBDT', 'TBAB', 'TBRC', 'TBGB'):
-        # regressor.fit(x_train, y_train, tb=tb_train)
-        regressor.fit(x_train, y_train, **fit_param)
+        # regressor.fit(x_train, y_train, **fit_param)
+        _, _ = performEstimatorGridSearchCV(regressor_gs, regressor, x_train, y_train,
+                                                       tb_kw=tbkey, tb_gs=tb_train)
     else:
-        performEstimatorGridSearch(regressor, tuneparams, x_train, y_train,
-                                   tbkey, tb_train, x_test, y_test, tb_test, verbose=gs_verbose, refit=True)
+        _, _ = performEstimatorGridSearch(regressor_gs, regressor,
+                                   tuneparams, x_train, y_train,
+                                   tbkey, tb_train, refit=True)
 
     t1 = t.time()
-    print('\nFinished DecisionTreeRegressor in {:.4f} s'.format(t1 - t0))
+    print('\nFinished {0} in {1:.4f} s'.format(estimator_name, t1 - t0))
     if save_estimator:
         dump(regressor, case.resultPaths[time] + estimator_name + '.joblib')
 

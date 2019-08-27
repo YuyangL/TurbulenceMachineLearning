@@ -1,17 +1,21 @@
 import pickle
 import os
-from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearch,  performEstimatorGridSearch
+from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearchCV, setupGradientBoostGridSearchCV, performEstimatorGridSearch, performEstimatorGridSearchCV
 from joblib import dump, load
 import time as t
 
 """
 User Inputs
 """
-casedir = 'ALM_N_H_OneTurb'
+unittest = True
+if unittest:
+    casedir = '/media/yluan/ALM_N_H_OneTurb/Fields/Result/24995.0438025/'
+else:
+    casedir = 'ALM_N_H_OneTurb'
 gsdata_name = 'list_data_GS_Confined'
 traindata_name = 'list_data_train_Confined'
-confined_zone = '1'
-estimators = ('TBDT', 'TBRF', 'TBAB')  # str, list/tuple(str)
+confined_zone = '2'
+estimators = 'TBGB' #('TBDT', 'TBRF', 'TBAB', 'TBGB')  # str, list/tuple(str)
 # Whether skip the GSCV step, only for TBDT and TBAB
 skip_gscv = 'auto'  # 'auto', bool
 
@@ -22,13 +26,13 @@ Machine Learning Settings
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
-max_features = (1/3., 2/3., 1.)  # list/tuple(int / float 0-1) or int / float 0-1
+max_features = (1/3., 2/3., 1.) if not unittest else 1.  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
 min_samples_leaf = 2  # int / float 0-1
 # [DEPRECATED] L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0.  # float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
-alpha_g_split = (0., 0.001, 0.00001)  # list/tuple(float) or float
+alpha_g_split = (0., 0.001, 0.00001) if not unittest else 0.  # list/tuple(float) or float
 # Best split finding scheme to speed up the process of locating the best split in samples of each node
 split_finder = "brent"  # "brute", "brent", "1000", "auto"
 # Cap of optimal g magnitude after LS fit
@@ -41,27 +45,45 @@ seed = 123
 # and/or verbose on "brent"/"brute"/"1000"/"auto" split finding scheme
 tb_verbose, split_verbose = False, False  # bool; bool
 # Whether verbose on GSCV. 0 means off, larger means more verbose
-gscv_verbose = 2  # int
+gs_verbose = 2  # int
 # Number of n-fold cross validation
-cv = 5  # int or None
-n_jobs = 20  # int
+cv = 4  # int or None
+n_jobs = -1  # int
+# Feature selection related settings
+rf_selector = True
+rf_selector_n_estimators = 3200 if not unittest else 800
+rf_selector_threshold = '0.1*median'
 # For TBDT only
-tree_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002),
-                   max_depth=None)
+tree_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002) if not unittest else 0.002,
+                   max_depth=None if not unittest else None)
 # For TBRF only
-rf_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002),
-                 max_depth=None,
-                 n_estimators=20,
+rf_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002) if not unittest else 0.002,
+                 max_depth=None if not unittest else None,
+                 n_estimators=32 if not unittest else 8,
                  oob_score=True,
                  median_predict=True,
-                 bij_novelty='excl')
+                 # [DEPRECATED]
+                 bij_novelty=None)
 # For TBAB only
-ab_kwargs = dict(gs_max_depth=(5, 10),
-                 gs_learning_rate=(0.1, 0.2, 0.4),
+ab_kwargs = dict(gs_max_depth=(5, 10) if not unittest else 5,
+                 gs_learning_rate=(0.1, 0.2, 0.4) if not unittest else 0.1,
                  min_samples_split=0.002,
-                 n_estimators=100,
+                 n_estimators=64 if not unittest else 16,
                  loss='square',
-                 bij_novelty='lim')
+                 # [DEPRECATED]
+                 bij_novelty=None)
+# For TBGB only
+gb_kwargs = dict(gs_max_depth=(5, 10) if not unittest else 5,
+                 gs_learning_rate=(0.1, 0.2, 0.4) if not unittest else 0.1,
+                 min_samples_split=0.002,
+                 n_estimators=64 if not unittest else 16,
+                 loss='ls',
+                 subsample=0.8,
+                 # FIXME: n_iter_no_change causes segmentation error
+                 n_iter_no_change=3,
+                 tol=1e-8,
+                 # [DREPRECATED]
+                 bij_novelty=None)
 
 
 """
@@ -82,15 +104,15 @@ general_kwargs = dict(presort=presort,
                       split_finder=split_finder,
                       g_cap=g_cap,
                       realize_iter=realize_iter,
-                      rand_state=seed,
+                      rand_state=None,
                       tb_verbose=tb_verbose,
                       split_verbose=split_verbose,
-                      gscv_verbose=gscv_verbose,
-                      verbose=gscv_verbose,
+                      gs_verbose=gs_verbose,
                       cv=cv,
                       n_jobs=n_jobs,
-                      refit=False,
-                      return_train_score=True)
+                      return_train_score=False,
+                      rf_selector_threshold=rf_selector_threshold,
+                      rf_selector_n_estimators=rf_selector_n_estimators)
 
 
 """
@@ -104,12 +126,17 @@ y_gs = list_data_gs[2]
 tb_gs = list_data_gs[3]
 del list_data_gs
 
-list_data_train = pickle.load(open(casedir + traindata_name + '.p', 'rb'), encoding='ASCII')
-cc_train = list_data_train[0]
-x_train = list_data_train[1]
-y_train = list_data_train[2]
-tb_train = list_data_train[3]
-del list_data_train
+if unittest:
+    x_train = x_gs
+    y_train = y_gs
+    tb_train = tb_gs
+else:
+    list_data_train = pickle.load(open(casedir + traindata_name + '.p', 'rb'), encoding='ASCII')
+    cc_train = list_data_train[0]
+    x_train = list_data_train[1]
+    y_train = list_data_train[2]
+    tb_train = list_data_train[3]
+    del list_data_train
 t1 = t.time()
 print('\nFinished loading GS and train data in {:.4f} s'.format(t1 - t0))
 
@@ -121,19 +148,26 @@ for estimator in estimators:
     # regressor_gs is the GSCV object while regressor is the actual estimator
     if estimator == 'TBDT':
         tree_kwargs_tot = {**tree_kwargs, **general_kwargs}
-        regressor_gs, regressor, tuneparams = setupDecisionTreeGridSearchCV(**tree_kwargs_tot)
+        regressor_gs, regressor, tuneparams, tbkw = setupDecisionTreeGridSearchCV(**tree_kwargs_tot)
     elif estimator == 'TBRF':
         # For TBRF, there's no GSCV
         rf_kwargs_tot = {**rf_kwargs, **general_kwargs}
-        regressor, tuneparams = setupRandomForestGridSearch(**rf_kwargs_tot)
+        regressor_gs, regressor, tuneparams, tbkw = setupRandomForestGridSearch(**rf_kwargs_tot)
     elif estimator == 'TBAB':
         ab_kwargs_tot = {**ab_kwargs, **general_kwargs}
-        regressor_gs, regressor, tuneparams = setupAdaBoostGridSearch(**ab_kwargs_tot)
+        regressor_gs, regressor, tuneparams, tbkw = setupAdaBoostGridSearchCV(**ab_kwargs_tot)
+    elif estimator == 'TBGB':
+        gb_kwargs_tot = {**gb_kwargs, **general_kwargs}
+        regressor_gs, regressor, tuneparams, tbkw = setupGradientBoostGridSearchCV(**gb_kwargs_tot)
 
     # Load saved GSCV estimator if asked and don't do GSCV again
     if skip_gscv in ('auto', True):
         try:
-            regressor_gs = load(resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+            if estimator != 'TBRF':
+                regressor_gs = load(resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+            else:
+                regressor_gs = load(resdir + 'GS_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+
             do_gscv = False
             print('\nSaved GSCV estimator found, skipping GSCV and directly to full training...')
         except:
@@ -142,31 +176,53 @@ for estimator in estimators:
     else:
         do_gscv = True
 
-    # GS(CV)
+    # Assign proper tb kw to fit_params
+    fit_param_gs, fit_param = {}, {}
+    fit_param_gs[tbkw] = tb_gs
+    # fit_param[tbkw] = tb_train if not unittest else None
+
+
+    """
+    GS(CV) and Final Training
+    """
     print(tuneparams)
     t0 = t.time()
-    if estimator in ('TBDT', 'TBAB'):
-        if do_gscv:
-            # This is a GSCV object
-            regressor_gs.fit(x_gs, y_gs, tb=tb_gs)
-            # Save the GSCV for further inspection
-            dump(regressor_gs, resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
-
-        # This is the actual estimator, setting the best found hyper-parameters to it
-        regressor.set_params(**regressor_gs.best_params_)
+    if estimator in ('TBDT', 'TBAB', 'TBGB'):
+        regressor, best_params = performEstimatorGridSearchCV(regressor_gs, regressor, x_gs, y_gs,
+                                                 tb_kw=tbkw, tb_gs=tb_gs,
+                                                 x_train=x_train, y_train=y_train, tb_train=tb_train,
+                                                              gs=do_gscv,
+                                                 savedir=resdir, gscv_name='GSCV_' + estimator + '_Confined' + str(confined_zone),
+                                                 final_name=estimator + '_Confined' + str(confined_zone))
+        # if do_gscv:
+        #     # This is a GSCV object
+        #     regressor_gs.fit(x_gs, y_gs, **fit_param_gs)
+        #     # Save the GSCV for further inspection
+        #     dump(regressor_gs, resdir + 'GSCV_' + estimator + '_Confined' + str(confined_zone) + '.joblib')
+        #
+        # # This is the actual estimator, setting the best found hyper-parameters to it
+        # regressor.set_params(**regressor_gs.best_params_)
     else:
-        # For TBRF, regressor_gs is regressor and is internaly updated to best hyper-parameters during GS
-        performEstimatorGridSearch(regressor, tuneparams, x_gs, y_gs, tb_gs,
-                                   verbose=gscv_verbose, refit=False)
+        # For TBRF, regressor_gs is equivalent to regressor and is internally updated to best hyper-parameters during GS
+        regressor, best_params = performEstimatorGridSearch(regressor_gs, regressor, tuneparams,
+                                                            x_gs, y_gs, tb_kw=tbkw, tb_gs=tb_gs,
+                                                            x_train=x_train, y_train=y_train, tb_train=tb_train,
+                                                            gs=do_gscv,
+                                                            savedir=resdir, gs_name='GS_' + estimator + '_Confined' + str(confined_zone),
+                                                            final_name=estimator + '_Confined' + str(confined_zone))
 
     t1 = t.time()
-    print('\nFinished {} GS(CV) in {:.4f} min'.format(estimator, (t1 - t0)/60.))
+    print('\nFinished {} GS(CV) as well as final training in {:.4f} min'.format(estimator, (t1 - t0)/60.))
 
-    # Actual training, fitting using the best found hyper-parameters
-    t0 = t.time()
-    regressor.fit(x_train, y_train, tb=tb_train)
-    # Save estimator
-    dump(regressor, resdir + estimator + '_Confined' + str(confined_zone) + '.joblib')
-    t1 = t.time()
-    print('\nFinished {} training in {:.4f} min'.format(estimator, (t1 - t0)/60.))
+    # # Actual training, fitting using the best found hyper-parameters
+    # t0 = t.time()
+    # if not unittest:
+    #     regressor.fit(x_train, y_train, **fit_param)
+    # else:
+    #     regressor.fit(x_gs, y_gs, **fit_param_gs)
+    #
+    # # Save estimator
+    # if not unittest: dump(regressor, resdir + estimator + '_Confined' + str(confined_zone) + '.joblib')
+    # t1 = t.time()
+    # print('\nFinished {} training in {:.4f} min'.format(estimator, (t1 - t0)/60.))
 

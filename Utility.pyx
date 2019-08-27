@@ -8,6 +8,7 @@ cimport numpy as np
 from libc.math cimport fmax, ceil, sqrt, cbrt, sin, cos
 from scipy import ndimage
 from Preprocess.Tensor import contractSymmetricTensor
+import functools, time
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=None,
                                 tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
@@ -476,7 +477,18 @@ cpdef np.ndarray gaussianFilter(np.ndarray array, double sigma=2.):
     return arr_filtered
     
 
-
+def timer(func):
+    """Print the runtime of the decorated function"""
+    @functools.wraps(func)
+    def wrapper_timer(*args, **kwargs):
+        start_time = time.perf_counter()    # 1
+        value = func(*args, **kwargs)
+        end_time = time.perf_counter()      # 2
+        run_time = end_time - start_time    # 3
+        #        print(f"\nFinished {func.__name__!r} in {run_time:.4f} secs")
+        print('\nFinished {!r} in {:.4f} s'.format(func.__name__, run_time))
+        return value
+    return wrapper_timer
 
 
 

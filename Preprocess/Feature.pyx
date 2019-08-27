@@ -154,6 +154,7 @@ cpdef tuple getSupplementaryInvariantFeatures(np.ndarray k, np.ndarray d, np.nda
     k = k.ravel()
     d = d.ravel()
     epsilon = epsilon.ravel()
+    nu = nu.ravel()
     if r is not None: r = r.ravel()
     # Calculate ||Sij|| for normalization if provided
     if isinstance(sij, np.ndarray):
@@ -220,18 +221,14 @@ cpdef np.ndarray getRadialTurbineDistance(np.ndarray x, np.ndarray y, np.ndarray
 
     # If z is None, only horizontal distance to turbine center is considered
     if z is None: z = 0.
-    # If only 1 turbine location provided, r is the radial distance to this turbine
-    if n_turbs == 1:
-        r = np.sqrt((x - turbarr[0])**2 + (y - turbarr[1])**2 + (z - turbarr[2])**2)
-    # Otherwise, r is the radial distance to the closest given turbine locations
-    else:
-        # Initial radial distance to the first given turbine center
-        r = np.sqrt((x - turbarr[0, 0])**2 + (y - turbarr[0, 1])**2 + (z - turbarr[0, 2])**2)
-        # For the other turbines
-        for i in range(n_turbs - 1):
-            ri = np.sqrt((x - turbarr[i, 0])**2 + (y - turbarr[i, 1])**2 + (z - turbarr[i, 2])**2)
-            # Find the minima comparing the old radial distance array with the new one calculated based on new turbine
-            r = np.minimum(r, ri)
+    # r is the radial distance to the closest given turbine locations
+    # Initial radial distance to the first given turbine center
+    r = np.sqrt((x - turbarr[0, 0])**2 + (y - turbarr[0, 1])**2 + (z - turbarr[0, 2])**2)
+    # For the other turbines
+    for i in range(n_turbs - 1):
+        ri = np.sqrt((x - turbarr[i, 0])**2 + (y - turbarr[i, 1])**2 + (z - turbarr[i, 2])**2)
+        # Find the minima comparing the old radial distance array with the new one calculated based on new turbine
+        r = np.minimum(r, ri)
 
     return r
 

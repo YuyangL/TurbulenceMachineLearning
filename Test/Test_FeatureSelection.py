@@ -17,17 +17,15 @@ User Inputs, Anything Can Be Changed Here
 casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
-seed = 321  # int
-# Interpolation method when interpolating mesh grids
-interp_method = "nearest"  # "nearest", "linear", "cubic"
-rf_selector_threshold='0.1median'
+rf_selector_threshold='median'
 # The case folder name storing the estimator
-estimator_folder = "TBDT/{50_0.002_2_0}_4cv_" + rf_selector_threshold
+estimator_folder = "TBDT/{50_0.002_2_0}_4cv" + '_' + rf_selector_threshold
+estimator_folder0 = "TBDT/{50_0.002_2_0}_4cv"
 estimator_dir = "RANS_Re10595"
 # Feature set number
 fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
 realize_iter = 0  # int
-plot_varthreshold = True
+plot_varthreshold = False
 
 
 """
@@ -45,6 +43,7 @@ else:
     estimator_name = 'TBDT'
 
 estimator_fullpath = casedir + '/' + estimator_dir + '/Fields/Result/5000/Archive/' + estimator_folder + '/' + estimator_name
+estimator_fullpath0 = casedir + '/' + estimator_dir + '/Fields/Result/5000/Archive/' + estimator_folder0 + '/' + estimator_name
 # Average fields of interest for reading and processing
 fields = ('U', 'k', 'p', 'omega',
           'grad_U', 'grad_k', 'grad_p')
@@ -72,23 +71,44 @@ figdir = case.resultPaths[time] + '/ValidationCurve'
 
 print('\nLoading regressor... ')
 regressor = load(estimator_fullpath + '.joblib')
+# Base regressor without feature selection
+regressor0 = load(estimator_fullpath0 + '.joblib')
 
 
 """
 Plot Feature Importance
 """
-feat_importance_all = regressor.best_estimator_.steps[0][1].estimator_.feature_importances_
-all_std = np.std([tree.feature_importances_ for tree in regressor.best_estimator_.steps[0][1].estimator_.estimators_],
-                 axis=0)
-threshold = regressor.best_estimator_.steps[0][1].threshold_
+# TBRF is not GridSearch object thus doesn't have best_estimator_ attribute
+if 'TBRF' not in estimator_name:
+    feat_importance_all = regressor.best_estimator_.steps[0][1].estimator_.feature_importances_
+    all_std = np.std([tree.feature_importances_ for tree in regressor.best_estimator_.steps[0][1].estimator_.estimators_],
+                     axis=0)
+    threshold = regressor.best_estimator_.steps[0][1].threshold_
 
-feat_importance = regressor.best_estimator_.steps[1][1].feature_importances_
-# TBDT doesn't have std
-if 'TBDT' not in estimator_name:
-    std = np.std([tree.feature_importances_ for tree in regressor.best_estimator_.steps[1][1].estimators_],
+    feat_importance = regressor.best_estimator_.steps[1][1].feature_importances_
+    # Feature importance without feature selection
+    feat_importance0 = regressor0.best_estimator_.feature_importances_
+else:
+    feat_importance_all = regressor.steps[0][1].estimator_.feature_importances_
+    all_std = np.std(
+            [tree.feature_importances_ for tree in regressor.steps[0][1].estimator_.estimators_],
+            axis=0)
+    threshold = regressor.steps[0][1].threshold_
+
+    feat_importance = regressor.steps[1][1].feature_importances_
+    # Feature importance without feature selection
+    feat_importance0 = regressor0.feature_importances_
+
+# Only TBRF have std
+if 'TBRF' in estimator_name:
+    std = np.std([tree.feature_importances_ for tree in regressor.steps[1][1].estimators_],
                  axis=0)
+    # Std of TBRF without feature selection
+    std0 = np.std([tree.feature_importances_ for tree in regressor0.estimators_],
+                  axis=0)
 else:
     std = np.zeros_like(all_std)
+    std0 = np.zeros_like(all_std)
 
 feat_importance_actual = feat_importance_all.copy()
 actual_std = np.zeros_like(all_std)
@@ -100,20 +120,24 @@ for i in range(len(feat_importance_all)):
         actual_std[i] = std[i0]
         i0 += 1
 
-myplot = Plot2D((np.arange(1, 51),)*2, (feat_importance_all, feat_importance_actual), save=True, show=False,
+myplot = Plot2D((np.arange(1, 51),)*3, (feat_importance_all, feat_importance0, feat_importance_actual), save=True, show=False,
                 xlabel='Feature', ylabel = 'Importance',
-                figwitdh='half', figdir=figdir, name=estimator_name + '_importance_' + rf_selector_threshold,
+                figwitdh='1/3', figdir=figdir, name=estimator_name + '_importance_' + rf_selector_threshold,
                 ylim=(0., 0.5))
 myplot.initializeFigure()
-myplot.plotFigure(linelabel=('TBRF selector', estimator_name), showmarker=True)
+myplot.plotFigure(linelabel=('TBRF feature selector', estimator_name, 'TBRF feature selector + ' + estimator_name), showmarker=True)
 myplot.axes.fill_between(np.arange(1, 51),
                          np.maximum(feat_importance_all - all_std, 0.),
                          feat_importance_all + all_std, alpha=0.25, color=myplot.colors[0], lw=0.)
-# TBDT doesn't have std
-if 'TBDT' not in estimator_name:
+# Only TBRF have std
+if 'TBRF' in estimator_name:
+    myplot.axes.fill_between(np.arange(1, 51),
+                             np.maximum(feat_importance0 - std0, 0.),
+                             feat_importance0 + std0, alpha=0.25, color=myplot.colors[1], lw=0.)
     myplot.axes.fill_between(np.arange(1, 51),
                              np.maximum(feat_importance_actual - actual_std, 0.),
-                             feat_importance_actual + actual_std, alpha=0.25, color=myplot.colors[1], lw=0.)
+                             feat_importance_actual + actual_std, alpha=0.25, color=myplot.colors[2], lw=0.)
+
 myplot.finalizeFigure(xyscale=('linear', 'linear'))
 
 
