@@ -1,26 +1,23 @@
 import pickle
 import os
-from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearchCV, setupGradientBoostGridSearchCV, performEstimatorGridSearch, performEstimatorGridSearchCV, performEstimatorGridSearchCV_Dask
+from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearchCV, setupGradientBoostGridSearchCV, performEstimatorGridSearch, performEstimatorGridSearchCV
 from joblib import dump, load
 import time as t
 
 """
 User Inputs
 """
-unittest = True
+unittest = False
 if unittest:
-    casedir = '/media/yluan/ALM_N_H_OneTurb/Fields/Result/24995.0438025/'
+    casedir = '/tmp/ALM_N_H_OneTurb/'  #'/media/yluan/ALM_N_H_OneTurb/Fields/Result/24995.0438025/'
 else:
-    casedir = 'ALM_N_H_OneTurb'
+    casedir =  '/media/yluan/RANS/N_H_OneTurb_Simple_ABL/Fields/Result/5000' #'/tmp/ALM_N_H_OneTurb/'  #'/media/yluan/ALM_N_H_OneTurb/Fields/Result/24995.0438025/'
 gsdata_name = 'list_data_GS_Confined'
 traindata_name = 'list_data_train_Confined'
 confined_zone = '2'
-estimators = 'TBGB' #('TBDT', 'TBRF', 'TBAB', 'TBGB')  # str, list/tuple(str)
+estimators = 'TBDT' #('TBDT', 'TBRF', 'TBAB', 'TBGB')  # str, list/tuple(str)
 # Whether skip the GSCV step, only for TBDT and TBAB
 skip_gscv = 'auto'  # 'auto', bool
-cores = 32
-walltime = '24:00:00'
-memory = '96GB'
 
 
 """
@@ -46,7 +43,7 @@ realize_iter = 0  # int
 seed = 123
 # For debugging, verbose on bij reconstruction from Tij and g;
 # and/or verbose on "brent"/"brute"/"1000"/"auto" split finding scheme
-tb_verbose, split_verbose = False, False  # bool; bool
+tb_verbose, split_verbose = False, True  # bool; bool
 # Whether verbose on GSCV. 0 means off, larger means more verbose
 gs_verbose = 2  # int
 # Number of n-fold cross validation
@@ -191,16 +188,13 @@ for estimator in estimators:
     print(tuneparams)
     t0 = t.time()
     if estimator in ('TBDT', 'TBAB', 'TBGB'):
-        regressor, best_params = performEstimatorGridSearchCV_Dask(regressor_gs, regressor, x_gs, y_gs,
+        regressor, best_params = performEstimatorGridSearchCV(regressor_gs, regressor, x_gs, y_gs,
                                                  tb_kw=tbkw, tb_gs=tb_gs,
                                                  x_train=x_train, y_train=y_train, tb_train=tb_train,
                                                               gs=do_gscv,
                                                  savedir=resdir, gscv_name='GSCV_' + estimator + '_Confined' + str(confined_zone),
                                                  final_name=estimator + '_Confined' + str(confined_zone),
-                                                              refit=True,
-                                                                   cores=cores,
-                                                                   walltime=walltime,
-                                                                   memory=memory)
+                                                              refit=True)
         # if do_gscv:
         #     # This is a GSCV object
         #     regressor_gs.fit(x_gs, y_gs, **fit_param_gs)

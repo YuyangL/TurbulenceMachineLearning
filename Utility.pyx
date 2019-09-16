@@ -9,6 +9,7 @@ from libc.math cimport fmax, ceil, sqrt, cbrt, sin, cos
 from scipy import ndimage
 from Preprocess.Tensor import contractSymmetricTensor
 import functools, time
+import warnings
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=None,
                                 tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
@@ -489,6 +490,20 @@ def timer(func):
         print('\nFinished {!r} in {:.4f} s'.format(func.__name__, run_time))
         return value
     return wrapper_timer
+
+
+def deprecated(func):
+    """This is a decorator which can be used to mark functions
+    as deprecated. It will result in a warning being emmitted
+    when the function is used."""
+    def newFunc(*args, **kwargs):
+        warnings.warn("Call to deprecated function %s." % func.__name__,
+                      category=DeprecationWarning, stacklevel=2)
+        return func(*args, **kwargs)
+    newFunc.__name__ = func.__name__
+    newFunc.__doc__ = func.__doc__
+    newFunc.__dict__.update(func.__dict__)
+    return newFunc
 
 
 

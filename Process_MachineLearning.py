@@ -1,7 +1,7 @@
 import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
-from PostProcess_FieldData import FieldData
+from FieldData import FieldData
 
 # For Python 2.7, use cpickle
 try:

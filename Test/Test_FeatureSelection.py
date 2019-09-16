@@ -5,7 +5,7 @@ from sklearn.ensemble import RandomForestRegressor
 import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
-from PostProcess_FieldData import FieldData
+from FieldData import FieldData
 from joblib import load
 from PlottingTool import Plot2D_MultiAxes, Plot2D
 

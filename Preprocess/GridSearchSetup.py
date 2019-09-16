@@ -12,6 +12,8 @@ from shutil import rmtree
 from sklearn.model_selection import ParameterGrid
 import copy
 from joblib import dump, load
+from sklearn.base import clone
+import time as t
 
 
 def setupDecisionTreePipelineGridSearchCV(gs_max_features=(1.,), gs_min_samples_split=(2,), gs_alpha_g_split=(0.,),
@@ -989,6 +991,93 @@ def setupGradientBoostPipelineGridSearchCV(n_estimators=50, gs_max_features=(1/3
     return gb_gscv, regressor, tuneparams, fit_param_key
 
 
+def performEstimatorGridSearchCV_Dask(estimator_gscv, estimator_final, x_gs, y_gs,
+                                 tb_kw='tb', tb_gs=None,
+                                 x_train=None, y_train=None, tb_train=None,
+                                 gs=True, refit=True,
+                                 save=True, savedir='./', gscv_name='GSCV', final_name='final',
+                                      cores=32,
+                                      walltime='24:00:00',
+                                      memory='96GB',
+                                 **kwargs):
+    from dask_jobqueue import PBSCluster
+    from dask.distributed import Client
+    from joblib import parallel_backend
+    cluster = PBSCluster(cores=cores,
+                         interface='eth0',
+                         walltime=walltime,
+                         memory=memory)
+    client = Client(cluster)
+
+    # FIXME: memory=pipeline_cachedir in Pipeline() not working properly here
+    # If refit is enabled i.e. train after GSCV,
+    # and if any of the train data is not provided, assume data for train is the same as GSCV
+    if refit and x_train is None: x_train = x_gs.copy()
+    if refit and y_train is None: y_train = y_gs.copy()
+    if refit and tb_train is None: tb_train = tb_gs.copy()
+    # Tij fit kwarg to be passed to fit() method during GSCV
+    fit_param = {tb_kw: tb_gs}
+    # GSCV, will also fit feature selector if estimator_gscv is a pipeline
+    if gs:
+        print('\nPerforming estimator GSCV...')
+        with parallel_backend('dask'):
+            estimator_gscv.fit(x_gs, y_gs, **fit_param)
+
+        if save:
+            # Save the GSCV for further inspection
+            dump(estimator_gscv, savedir + '/' + gscv_name + '.joblib')
+            print('\nFitted {0} saved at {1}'.format(gscv_name, savedir))
+
+    is_pipeline = True if hasattr(estimator_gscv, 'steps') else False
+    # Best hyper-parameters found through GSCV.
+    # best_params_ stored in final step of the estimator_gs pipeline or directly in estimator_gs
+    best_params = estimator_gscv._final_estimator.best_params_ if is_pipeline else estimator_gscv.best_params_
+    # If there's feature selection i.e. estimator_gscv and estimator_final are pipelines
+    if is_pipeline:
+        # If pipeline, step names excl. the actual regressor name
+        selector_steps = [tuple[0] for tuple in estimator_gscv.steps[:-1]]
+        # Then assign the fitted selectors to the unfitted final estimator pipeline
+        for i, name in enumerate(selector_steps):
+            estimator_final.named_steps[name] = copy.deepcopy(estimator_gscv.named_steps[name])
+            estimator_final.steps[i] = copy.deepcopy(estimator_gscv.steps[i])
+            # If refit, use the fitted feature selector to transform training x
+            if refit:
+                with parallel_backend('dask'):#, scatter=[x_train]):
+                    x_train = estimator_final.named_steps[name].transform(x_train)
+
+        # Lastly, assign the found best hyper-parameters to estimator_final
+        estimator_final._final_estimator.set_params(**best_params)
+    else:
+        estimator_final.set_params(**best_params)
+
+    print('\nBest hyper-parameters assigned to regressor: {}'.format(best_params))
+    # Now we can start actual training, if refit is requested
+    if refit:
+        print('\nRe-fitting estimator with best hyper-parameters and training data...')
+        # If pipeline, only fit the regressor since the feature selector has been fitted already during GSCV.
+        # Also, x_train has been transformed by feature selector already above
+        with parallel_backend('dask'):#, scatter=[x_train, y_train, tb_train]):
+            if is_pipeline:
+                estimator_final._final_estimator.fit(x_train, y_train, tb=tb_train)
+            # Otherwise, estimator_final itself is the regressor object
+            else:
+                estimator_final.fit(x_train, y_train, tb=tb_train)
+
+        if save:
+            # Save the final fitted regressor
+            dump(estimator_final, savedir + '/' + final_name + '.joblib')
+            print('\nFitted {0} saved at {1}'.format(final_name, savedir))
+
+    # If transformers in pipelines have been cached, remove them after fitting
+    if is_pipeline:
+        if estimator_gscv.memory is not None: rmtree(estimator_gscv.memory)
+        if refit and estimator_final.memory is not None: rmtree(estimator_final.memory)
+
+    # The pipeline or simply regressor after GSCV.
+    # If pipeline, the feature selector is already fitted while the actual regressor might not depending on whether train data is supplied
+    return estimator_final, best_params
+
+
 def performEstimatorGridSearchCV(estimator_gscv, estimator_final, x_gs, y_gs,
                                  tb_kw='tb', tb_gs=None,
                                  x_train=None, y_train=None, tb_train=None,
@@ -1021,8 +1110,9 @@ def performEstimatorGridSearchCV(estimator_gscv, estimator_final, x_gs, y_gs,
         # If pipeline, step names excl. the actual regressor name
         selector_steps = [tuple[0] for tuple in estimator_gscv.steps[:-1]]
         # Then assign the fitted selectors to the unfitted final estimator pipeline
-        for name in selector_steps:
-            estimator_final.named_steps[name] = estimator_gscv.named_steps[name]
+        for i, name in enumerate(selector_steps):
+            estimator_final.named_steps[name] = copy.deepcopy(estimator_gscv.named_steps[name])
+            estimator_final.steps[i] = copy.deepcopy(estimator_gscv.steps[i])
             # If refit, use the fitted feature selector to transform training x
             if refit: x_train = estimator_final.named_steps[name].transform(x_train)
 
@@ -1035,6 +1125,7 @@ def performEstimatorGridSearchCV(estimator_gscv, estimator_final, x_gs, y_gs,
     # Now we can start actual training, if refit is requested
     if refit:
         print('\nRe-fitting estimator with best hyper-parameters and training data...')
+        t0 = t.time()
         # If pipeline, only fit the regressor since the feature selector has been fitted already during GSCV.
         # Also, x_train has been transformed by feature selector already above
         if is_pipeline:
@@ -1043,6 +1134,8 @@ def performEstimatorGridSearchCV(estimator_gscv, estimator_final, x_gs, y_gs,
         else:
             estimator_final.fit(x_train, y_train, tb=tb_train)
 
+        t1 = t.time()
+        print('\nFinished {0} in {1:.4f} min'.format(final_name, (t1 - t0)/60.))
         if save:
             # Save the final fitted regressor
             dump(estimator_final, savedir + '/' + final_name + '.joblib')
@@ -1123,21 +1216,25 @@ def performEstimatorGridSearch(estimator_gs, estimator_final, tuneparams, x_gs, 
         # If pipeline, step names excl. the actual regressor name
         selector_steps = [tuple[0] for tuple in estimator_gs.steps[:-1]]
         # Then assign the fitted selectors to the unfitted final estimator pipeline
-        for name in selector_steps:
-            estimator_final.named_steps[name] = estimator_gs.named_steps[name]
+        for i, name in enumerate(selector_steps):
+            estimator_final.named_steps[name] = copy.deepcopy(estimator_gs.named_steps[name])
+            estimator_final.steps[i] = copy.deepcopy(estimator_gs.steps[i])
             # If refit, use the fitted feature selector to transform training x
             if refit: x_train = estimator_final.named_steps[name].transform(x_train)
 
-    # Set the best hyper-parameters to the estimator
-    if is_pipeline:
-        estimator_final._final_estimator.set_params(**best_grid)
+        # Set the best hyper-parameters to the estimator
+        regressor_name = estimator_gs.steps[-1][0]
+        # estimator_final._final_estimator.set_params(**best_grid)
+        estimator_final.named_steps[regressor_name] = clone(estimator_gs.named_steps[regressor_name])
     else:
-        estimator_final.set_params(**best_grid)
+        # estimator_final.set_params(**best_grid)
+        estimator_final = clone(estimator_gs)
 
-    print('\nBest hyper-parameters assigned to regressor: {}'.format(best_grid))
+    print('\nBest hyper-parameters assigned to regressor')
     # The previous fits were cleared thus need to refit using the best hyper-parameters
     if refit:
         print('\nRe-fitting estimator with best hyper-parameters and training data...')
+        t0 = t.time()
         # If pipeline, only fit the regressor since the feature selector has been fitted already during GS.
         # Also, x_train has been transformed by feature selector already above
         if is_pipeline:
@@ -1146,6 +1243,8 @@ def performEstimatorGridSearch(estimator_gs, estimator_final, tuneparams, x_gs, 
         else:
             estimator_final.fit(x_train, y_train, tb=tb_train)
 
+        t1 = t.time()
+        print('\nFinished {0} in {1:.4f} min'.format(estimator_final, (t1 - t0)/60.))
         if save:
             # Save the final fitted regressor
             dump(estimator_final, savedir + '/' + final_name + '.joblib')

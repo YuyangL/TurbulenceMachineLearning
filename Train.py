@@ -2,7 +2,7 @@ import numpy as np
 import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
-from PostProcess_FieldData import FieldData
+from FieldData import FieldData
 from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV
 from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData
 

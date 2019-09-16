@@ -2,7 +2,7 @@ import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
 from joblib import load
-from PostProcess_FieldData import FieldData
+from FieldData import FieldData
 from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor, makeRealizable
 from Utility import interpolateGridData, rotateData, gaussianFilter, fieldSpatialSmoothing
 import time as t
@@ -74,12 +74,14 @@ Process User Inputs, Don't Change
 if time == 'last':
     if test_casename == 'ALM_N_H_ParTurb':
         time = '25000.0838025'
+        # FIXME: update
         if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                                'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
                                                'sevenDdownstreamTurbines')
     elif test_casename == 'ALM_N_L_ParTurb':
         time = '23000.07'
+        # FIXME: update
         if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                                'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
@@ -88,10 +90,11 @@ if time == 'last':
     elif test_casename == 'ALM_N_H_OneTurb':
         time = '24995.0438025'
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                               'twoDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine',
-                                               'sevenDdownstreamTurbine')
+                                               'oneDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine',
+                                               'threeDdownstreamTurbine', 'fiveDdownstreamTurbine', 'sevenDdownstreamTurbine')
     elif test_casename == 'ALM_N_H_SeqTurb':
         time = '25000.1288025'
+        # FIXME: update
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
                                                'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
@@ -99,6 +102,7 @@ if time == 'last':
                                                'sixDdownstreamTurbineTwo')
     elif test_casename == 'ALM_N_L_SeqTurb':
         time = '23000.135'
+        # FIXME: update
         if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
                                                'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
@@ -107,11 +111,13 @@ if time == 'last':
 
     elif test_casename == 'ALM_N_L_ParTurb_Yaw':
         time = '23000.065'
+        # FIXME: update
         if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                                'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                                'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
                                                'sevenDdownstreamTurbines')
     elif test_casename == 'ALM_N_H_ParTurb_HiSpeed':
+        # FIXME: update
         time = ''
 
 else:
@@ -142,8 +148,7 @@ else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
               'grad_UAvg')
 
-# uniform_mesh_size = int(uniform_mesh_size)
-if fieldrot > 2*np.pi: fieldrot /= 180./np.pi
+if fieldrot > np.pi: fieldrot /= 180./np.pi
 # Initialize case object for both ML and test case
 # case_ml = FieldData(caseName=ml_casename, caseDir=casedir, times=time, fields=fields, save=False)
 case = FieldData(caseName=test_casename, caseDir=casedir, times=time, fields=fields, save=False)
@@ -201,7 +206,7 @@ if plotslices:
         # Rotate field
         y_test = expandSymmetricTensor(y_test_unrot).reshape((-1, 3, 3))
         y_test = rotateData(y_test, anglez=fieldrot)
-        y_test = contractSymmetricTensor(y_test.reshape((-1, 9)))
+        y_test = contractSymmetricTensor(y_test)
 
 
         """
@@ -213,7 +218,7 @@ if plotslices:
         # Rotate field
         y_pred_test = expandSymmetricTensor(y_pred_test_unrot).reshape((-1, 3, 3))
         y_pred_test = rotateData(y_pred_test, anglez=fieldrot)
-        y_pred_test = contractSymmetricTensor(y_pred_test.reshape((-1, 9)))
+        y_pred_test = contractSymmetricTensor(y_pred_test)
         t1 = t.time()
         print('\nFinished bij prediction in {:.4f} s'.format(t1 - t0))
 
@@ -292,9 +297,9 @@ if plotslices:
             y_pred_test = y_predtest_mesh
 
         t0 = t.time()
-        _, eigval_test, _ = processReynoldsStress(y_test, make_anisotropic=False, realization_iter=0)
+        _, eigval_test, _ = processReynoldsStress(y_test, make_anisotropic=False, realization_iter=0, to_old_grid_shape=False)
         # If filter was True, eigval_pred_test is a mesh grid
-        _, eigval_pred_test, _ = processReynoldsStress(y_pred_test, make_anisotropic=False, realization_iter=realize_iter)
+        _, eigval_pred_test, _ = processReynoldsStress(y_pred_test, make_anisotropic=False, realization_iter=realize_iter, to_old_grid_shape=False)
         t1 = t.time()
         print('\nFinished processing Reynolds stress in {:.4f} s'.format(t1 - t0))
 

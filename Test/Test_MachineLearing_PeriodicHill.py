@@ -2,7 +2,7 @@ import numpy as np
 import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
-from PostProcess_FieldData import FieldData
+from FieldData import FieldData
 from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor
 from Preprocess.Feature import getInvariantFeatureSet, getSupplementaryInvariantFeatures
 from Utility import interpolateGridData
@@ -17,7 +17,7 @@ except ModuleNotFoundError:
 
 from scipy.interpolate import griddata
 from numba import njit, prange
-from Utilities import timer
+from Utility import timer
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.multioutput import RegressorChain
@@ -72,12 +72,11 @@ calculate_features = False  # bool
 # Whether to split train and test data or directly read from pickle data
 split_train_test_data = False  # bool
 # Feature set number
-fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
+fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
 scaler = None  # 'maxabs', 'minmax', None
 # Whether remove low variance features
 var_threshold = -1  # float
-rf_selector = True
-rf_selector_n_estimators = 1000
+rf_selector_n_estimators = 0
 rf_selector_threshold = '0.25*median'  # 'median', 'mean', None
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
@@ -89,11 +88,11 @@ presort = True  # bool
 # Maximum number of features to consider for best split
 max_features = 1.#(2/3., 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
-min_samples_leaf = 2  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_leaf = 4  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
-min_samples_split = 0.002 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_split = 16 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = 5#(3, 5)  # int
+max_depth = None#(3, 5)  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
@@ -137,10 +136,12 @@ elif estimator_name in ('TBGB', 'tbgb'):
 elif estimator_name in ('TBNN', 'tbnn'):
     num_layers = 8  # Number of hidden layers in the TBNN
     num_nodes = 30  # Number of nodes per hidden layer
-    max_epochs = 2000  # Max number of epochs during training
-    min_epochs = 1000  # Min number of training epochs required
-    interval = 100  # Frequency at which convergence is checked
-    average_interval = 4  # Number of intervals averaged over for early stopping criteria
+    max_epochs = 1000  # Max number of epochs during training
+    min_epochs = 100  # Min number of training epochs required
+    interval = 10  # Frequency at which convergence is checked
+    average_interval = 5  # Number of intervals averaged over for early stopping criteria
+    learning_rate_decay = 0.99
+    init_learning_rate = 1e-2
 
 # Seed value for reproducibility
 seed = 123
@@ -152,7 +153,7 @@ test_fraction = 0.2  # float [0-1]
 # Whether verbose on GSCV. 0 means off, larger means more verbose
 gs_verbose = 2  # int
 # Number of n-fold cross validation
-cv = 4  # int or None
+cv = None  # int or None
 
 
 """
@@ -513,27 +514,32 @@ if train_model:
         structure.set_num_layers(num_layers)
         structure.set_num_nodes(num_nodes)
         # Initialize and fit TBNN
-        regressor = TBNN(structure)
+        regressor = TBNN(structure, print_freq=interval,learning_rate_decay=learning_rate_decay)
         # Optimal according to Ling et al. (2016)
         regressor.set_min_learning_rate(2.5e-7)
         regressor.set_train_fraction(1. - test_fraction)
         regressor.fit(x_train, tb_train, y_train, max_epochs=max_epochs, min_epochs=min_epochs, interval=interval,
-                 average_interval=average_interval)
+                 average_interval=average_interval, init_learning_rate=init_learning_rate)
     else:
         regressor = base_estimator
+        tbkey = 'tb'
 
     t0 = t.time()
     fit_param, test_param = {}, {}
     fit_param[tbkey] = tb_train
     # test_param[tbkey] = tb_test
     if estimator_name in ('TBDT', 'TBAB', 'TBRC', 'TBGB'):
-        # regressor.fit(x_train, y_train, **fit_param)
-        _, _ = performEstimatorGridSearchCV(regressor_gs, regressor, x_train, y_train,
-                                                       tb_kw=tbkey, tb_gs=tb_train)
+        if cv is None:
+            regressor.fit(x_train, y_train, **fit_param)
+        else:
+            _, _ = performEstimatorGridSearchCV(regressor_gs, regressor, x_train, y_train,
+                                                       tb_kw=tbkey, tb_gs=tb_train, savedir=case.resultPaths[time], final_name=estimator_name)
+
     else:
         _, _ = performEstimatorGridSearch(regressor_gs, regressor,
                                    tuneparams, x_train, y_train,
-                                   tbkey, tb_train, refit=True)
+                                   tbkey, tb_train, refit=True,
+                                          savedir=case.resultPaths[time], final_name=estimator_name)
 
     t1 = t.time()
     print('\nFinished {0} in {1:.4f} s'.format(estimator_name, t1 - t0))

@@ -47,7 +47,7 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
     # stress_tensor, shape_old = convertTensorTo2D(stress_tensor)
     stress_tensor, shape_old = collapseMeshGridFeatures(stress_tensor, matrix_shape=(3,3), collapse_matrix=True)
     # Original shape without last D which is 9, or last 2D which is 3 x 3, representing the grid shape
-    if shape_old[:(len(shape_old) - 2)] == (3, 3):
+    if shape_old[(len(shape_old) - 2):] == (3, 3):
         shape_old_grid = list(shape_old[:(len(shape_old) - 2)])
     else:
         shape_old_grid = list(shape_old[:(len(shape_old) - 1)])
@@ -79,8 +79,9 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
             #                  stress_tensor[:, 1], stress_tensor[:, 3], stress_tensor[:, 4],
             #                  stress_tensor[:, 2], stress_tensor[:, 4], stress_tensor[:, 5]))
         else:
+            bij = np.empty((stress_tensor.shape[0], 9))
             for i in range(9):
-                stress_tensor[:, i] = stress_tensor[:, i]/(2.*k) - 1/3. if i in (0, 4, 8) else stress_tensor[:, i]/(2.*k)
+                bij[:, i] = stress_tensor[:, i]/(2.*k) - 1/3. if i in (0, 4, 8) else stress_tensor[:, i]/(2.*k)
 
     # Else if stress tensor is already anisotropic
     else:
@@ -133,9 +134,12 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
         shape_old_matrix = shape_old_eigval.copy()
         # [old grid, 3, 3]
         shape_old_matrix.append(3)
-        eigval = eigval.reshape(tuple(shape_old_eigval))
-        eigvec = eigvec.reshape(tuple(shape_old_matrix))
-        bij = bij.reshape(tuple(shape_old_matrix))
+        # eigval = eigval.reshape(tuple(shape_old_eigval))
+        # eigvec = eigvec.reshape(tuple(shape_old_matrix))
+        # bij = bij.reshape(tuple(shape_old_matrix))
+        eigval = reverseOldGridShape(eigval, shape_old_eigval, infer_matrix_form=False)
+        eigvec = reverseOldGridShape(eigvec, shape_old_matrix)
+        bij = reverseOldGridShape(bij, shape_old_matrix)
 
     print('\nObtained bij with shape ' + str(np.shape(bij)) + ', ')
     print(' eigenvalues with shape ' + str(np.shape(eigval)) + ', ')
@@ -245,7 +249,6 @@ cpdef np.ndarray expandSymmetricTensor(np.ndarray tensor):
     return tensor_full
 
 
-@cython.wraparound(True)
 cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor):
     """
     Contract an nD full symmetric tensor of 9 components to 6 components.
@@ -263,19 +266,24 @@ cpdef np.ndarray contractSymmetricTensor(np.ndarray tensor):
     cdef np.ndarray tensor_compact
     cdef unsigned int last_ax = len(shape_old) - 1
     cdef tuple idx_1to6
+    cdef list shape_new
 
     # If the symmetric tensor 2D array's last D isn't 9 components, return old tensor
     if len(shape_old) == 2:
         if tensor.shape[last_ax] != 9: return tensor
     # Else if tensor is 3D or more neither last D isn't 9 nor last 2D aren't 3 x 3, return old tensor
     elif len(shape_old) > 2:
-        if tensor.shape[last_ax] != 9 or np.shape(tensor[..., :, :]) != (3, 3): return tensor
+        if tensor.shape[last_ax] != 9 and shape_old[len(shape_old) - 2:] != (3, 3): return tensor
     # Else if 1D tensor, return old tensor
     else:
         return tensor
 
     # If tensor is given in the shape of (..., 3, 3), collapse matrix to 9
-    if len(shape_old) > 2 and np.shape(tensor[..., :, :]) == (3, 3): tensor = tensor.reshape((-1, 9))
+    if len(shape_old) > 2 and shape_old[len(shape_old) - 2:] == (3, 3):
+        # Get rid of (3, 3) and append 9 to shape
+        shape_new = list(shape_old[:len(shape_old) - 2])
+        shape_new.append(9)
+        tensor = tensor.reshape(shape_new)
 
     # Indices to concatenate
     idx_1to6 = (0, 1, 2, 4, 5, 8)
