@@ -91,7 +91,8 @@ cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t]
     nbase = cbrt(mesh_target/(lx*ly*lz)) if z is not None else sqrt(mesh_target/(lx*ly))
 
     nx, ny = <int>ceil(lx*nbase), <int>ceil(ly*nbase)
-    if z is not None: nz = <int>ceil(lz*nbase)
+    nz = <int>ceil(lz*nbase) if z is not None else 1
+    print("\nTarget resolution is {} x {} (x {})".format(nx, ny, nz))
     precision_x = nx*1j
     precision_y = ny*1j
     if z is not None: precision_z = nz*1j

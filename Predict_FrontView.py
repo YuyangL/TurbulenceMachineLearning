@@ -148,10 +148,10 @@ else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
               'grad_UAvg')
 
-if fieldrot > np.pi: fieldrot /= 180./np.pi
+if fieldrot > np.pi/2.: fieldrot /= 180./np.pi
 # Initialize case object for both ML and test case
-# case_ml = FieldData(caseName=ml_casename, caseDir=casedir, times=time, fields=fields, save=False)
-case = FieldData(caseName=test_casename, caseDir=casedir, times=time, fields=fields, save=False)
+# case_ml = FieldData(casename=ml_casename, casedir=casedir, times=time, fields=fields, save=False)
+case = FieldData(casename=test_casename, casedir=casedir, times=time, fields=fields, save=False)
 
 
 """

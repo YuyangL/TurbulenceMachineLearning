@@ -25,13 +25,11 @@ import time as t
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case
-casename = 'ALM_N_H_OneTurb'  # str
+casename = 'ALM_N_H_ParTurb2'  # str
 # Absolute directory of this flow case
 casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
 time = 'latestTime'  # str/float/int or 'latestTime'
-# Interpolation method when interpolating mesh grids
-interp_method = "nearest"  # "nearest", "linear", "cubic"
 # What keyword does the gradient fields contain
 grad_kw = 'grad'  # str
 # Whether process field data, invariants, features from scratch,
@@ -78,9 +76,9 @@ save_fields, resultfolder = True, 'Result'  # bool; str
 Machine Learning Settings
 """
 # Whether to calculate features or directly read from pickle data
-calculate_features = False  # bool
+calculate_features = True  # bool
 # Whether to split train and test data or directly read from pickle data
-prep_train_test_data = False  # bool
+prep_train_test_data = True  # bool
 # Number of samples for Grid Search before training on all data
 # Also number of samples to do ML, if None, all samples are used for training
 samples_gs, samples_train = 10000, None  # int; int, None
@@ -96,7 +94,7 @@ seed = 123  # int, None
 Visualization Settings
 """
 # Whether to process slices and save them for prediction visualization later
-process_slices, process_sets = True, True  # bool
+process_slices, process_sets = False, False  # bool
 # Slice names for prediction visualization
 slicenames = 'auto'
 set_types = 'auto'
@@ -121,23 +119,37 @@ else:
 
 # Ensemble name of fields useful for Machine Learning
 mlfield_ensemble_name = 'ML_Fields_' + casename
-# Automatically select time if time is set to 'latest'
-if casename == 'ALM_N_H_ParTurb':
-    # FIXME: update
-    if time == 'latestTime': time = '22000.0918025'
+# Case related settings
+if 'ParTurb' in casename:
+    # Latest time assignment
+    if time == 'latestTime':
+        if '_H_ParTurb2' in casename:
+             time = '25000.0838025'
+        elif '_L_ParTurb_Yaw' in casename:
+            time = '23000.065'
+        elif casename == 'ALM_N_L_ParTurb':
+            time = '23000.07'
+        elif casename == 'ALM_N_H_ParTurb_HiSpeed':
+            # FIXME: update
+            time = ''
+
     if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
                                            'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                            'oneDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines',
-                                           'threeDdownstreamTurbines', 'fieDdownstreamTurbines', 'sevenDdownstreamTurbines')
+                                           'threeDdownstreamTurbines', 'fiveDdownstreamTurbines', 'sevenDdownstreamTurbines')
+    if set_types == 'auto': set_types = ('oneDdownstreamSouthernTurbine_H',
+                                         'oneDdownstreamNorthernTurbine_H',
+                                         'threeDdownstreamSouthernTurbine_H',
+                                         'threeDdownstreamNorthernTurbine_H',
+                                         'sevenDdownstreamSouthernTurbine_H',
+                                         'sevenDdownstreamNorthernTurbine_H',
+                                         'oneDdownstreamSouthernTurbine_V',
+                                         'oneDdownstreamNorthernTurbine_V',
+                                         'threeDdownstreamSouthernTurbine_V',
+                                         'threeDdownstreamNorthernTurbine_V',
+                                         'sevenDdownstreamSouthernTurbine_V',
+                                         'sevenDdownstreamNorthernTurbine_V')
     # Southern turbine; northern turbine center coordinates, 3D apart from each other
-    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
-elif casename == 'ALM_N_L_ParTurb':
-    if time == 'latestTime': time = '23000.07'
-    # FIXME: update
-    if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
-                                           'sevenDdownstreamTurbines')
     turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 elif casename == 'ALM_N_H_OneTurb':
     if time == 'latestTime': time = '24995.0438025'
@@ -151,6 +163,12 @@ elif casename == 'ALM_N_H_OneTurb':
                                          'sevenDdownstreamTurbine_V')
     # 1 turbine center coordinate at the upwind turbine location
     turblocs = [1118.083, 1279.5, 90.]
+elif 'SeqTurb' in casename:
+    if time == 'latestTime':
+        if casename == 'ALM_N_H_SeqTurb':
+            time = '25000.1638025'
+        elif casename == 'ALM_N_L_SeqTurb':
+            time = '23000.135'
 elif casename == 'ALM_N_H_SeqTurb':
     if time == 'latestTime': time = '25000.1638025'
     # FIXME: update
@@ -170,33 +188,21 @@ elif casename == 'ALM_N_L_SeqTurb':
                                            'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
                                            'sixDdownstreamTurbineTwo')
     turblocs = [[1118.083, 1279.5, 90.], [1881.917, 1720.5, 90.]]
-elif casename == 'ALM_N_L_ParTurb_Yaw':
-    if time == 'latestTime': time = '23000.065'
-    # FIXME: update
-    if slicenames == 'auto': slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines', 'threeDdownstreamTurbines',
-                                           'sevenDdownstreamTurbines')
-    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
-elif casename == 'ALM_N_H_ParTurb_HiSpeed':
-    # FIXME: update
-    if time == 'latestTime': time = ''
-    turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 
 # Automatically define the confined domain region
 if confine and confinezone is not None:
     rotbox = np.pi/6
     # For 2 parallel turbines 1 in north 1 in south
     if 'ParTurb' in casename:
-        # 1st refinement zone as confinement box around southern turbine
+        # 1st refinement zone as confinement box around parallel turbines
         if confinezone == 'first':
             boxorig = (1074.225, 599.464, 0)
-            boxl, boxw, boxh = 1134, 630, 405
+            boxl, boxw, boxh = 1134, 1134, 405
             confinedfield_namesub += '1'
-        # 2nd refinement zone as confinement box around southern turbine
+        # 2nd refinement zone as confinement box around parallel turbines
         elif confinezone == 'second':
             boxorig = (1120.344, 771.583, 0)
-            boxl, boxw, boxh = 882, 378, 216
+            boxl, boxw, boxh = 882, 882, 216
             confinedfield_namesub += '2'
 
     # For 1 turbine only
@@ -211,6 +217,7 @@ if confine and confinezone is not None:
             confinedfield_namesub += '2'
 
     # For 2 sequential turbines 1 behind the other
+    # FIXME: update
     elif 'SeqTurb' in casename:
         if confinezone == 'first':
             boxorig = (948.225, 817.702, 0)
@@ -230,7 +237,7 @@ slicename_sub = 'Slice'
 # Ensemble file name, containing fields related to ML
 mlfield_ensemble_namefull = mlfield_ensemble_name + '_' + confinedfield_namesub
 # Initialize case object
-case = FieldData(caseName=casename, caseDir=casedir, times=time, fields=fields, save=save_fields, resultFolder=resultfolder)
+case = FieldData(casename=casename, casedir=casedir, times=time, fields=fields, save=save_fields, result_folder=resultfolder)
 
 
 """
@@ -297,11 +304,11 @@ if process_raw_field:
     if confine:
         # Confine to domain of interest and save confined cell centers as well as field ensemble if requested
         _, _, _, cc, mlfield_ensemble, box, _ = case.confineFieldDomain_Rotated(ccx, ccy, ccz, mlfield_ensemble,
-                                                                                        boxL=boxl, boxW=boxw,
-                                                                                        boxH=boxh, boxO=boxorig,
-                                                                                        boxRot=rotbox,
-                                                                                        fileNameSub=confinedfield_namesub,
-                                                                                        valsName=mlfield_ensemble_name)
+                                                                                        box_l=boxl, box_w=boxw,
+                                                                                        box_h=boxh, box_orig=boxorig,
+                                                                                        rot_z=rotbox,
+                                                                                        filenames_sub=confinedfield_namesub,
+                                                                                        vals_name=mlfield_ensemble_name)
         del ccx, ccy, ccz
         # Update old whole fields to new confined fields
         grad_k, k = mlfield_ensemble[:, :3], mlfield_ensemble[:, 3]
@@ -314,7 +321,7 @@ if process_raw_field:
         if plot_confinebox:
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            patch = patches.PathPatch(box, facecolor = 'orange', lw = 0)
+            patch = patches.PathPatch(box, facecolor='orange', lw=0)
             ax.add_patch(patch)
             ax.axis('equal')
             ax.set_xlim(0, 3000)
@@ -342,23 +349,25 @@ if process_raw_field:
         k, epsilon = k.reshape((-1, 1)), epsilon.reshape((-1, 1))
         # Reassemble ML field ensemble after possible field rotation
         mlfield_ensemble = np.hstack((grad_k, k, epsilon, grad_u, u, grad_p, uuprime2))
-        case.savePickleData(time, mlfield_ensemble, fileNames=mlfield_ensemble_namefull)
-        case.savePickleData(time, cc, fileNames='CC_' + confinedfield_namesub)
+        case.savePickleData(time, mlfield_ensemble, filenames=mlfield_ensemble_namefull)
+        case.savePickleData(time, cc, filenames='CC_' + confinedfield_namesub)
 
+    del mlfield_ensemble
 # Else if directly read pickle data
 else:
-    # Load rotated and/or confined field data useful for Machine Learning
-    mlfield_ensemble = case.readPickleData(time, mlfield_ensemble_namefull)
-    grad_k, k = mlfield_ensemble[:, :3], mlfield_ensemble[:, 3]
-    epsilon = mlfield_ensemble[:, 4]
-    grad_u = mlfield_ensemble[:, 5:14]
-    u = mlfield_ensemble[:, 14:17]
-    grad_p = mlfield_ensemble[:, 17:20]
-    uuprime2 = mlfield_ensemble[:, 20:]
-    # Load confined cell centers too
-    cc = case.readPickleData(time, 'CC_' + confinedfield_namesub)
+    if process_invariants:
+        # Load rotated and/or confined field data useful for Machine Learning
+        mlfield_ensemble = case.readPickleData(time, mlfield_ensemble_namefull)
+        grad_k, k = mlfield_ensemble[:, :3], mlfield_ensemble[:, 3]
+        epsilon = mlfield_ensemble[:, 4]
+        grad_u = mlfield_ensemble[:, 5:14]
+        u = mlfield_ensemble[:, 14:17]
+        grad_p = mlfield_ensemble[:, 17:20]
+        uuprime2 = mlfield_ensemble[:, 20:]
+        # Load confined cell centers too
+        cc = case.readPickleData(time, 'CC_' + confinedfield_namesub)
 
-del mlfield_ensemble
+        del mlfield_ensemble
 
 
 """
@@ -382,22 +391,23 @@ if process_invariants:
     del uuprime2
     # Save tensor invariants related fields
     if save_fields:
-        case.savePickleData(time, sij, fileNames = ('Sij_' + confinedfield_namesub))
-        case.savePickleData(time, rij, fileNames = ('Rij_' + confinedfield_namesub))
-        case.savePickleData(time, tb, fileNames = ('Tij_' + confinedfield_namesub))
-        case.savePickleData(time, bij, fileNames = ('bij_' + confinedfield_namesub))
+        case.savePickleData(time, sij, filenames=('Sij_' + confinedfield_namesub))
+        case.savePickleData(time, rij, filenames=('Rij_' + confinedfield_namesub))
+        case.savePickleData(time, tb, filenames=('Tij_' + confinedfield_namesub))
+        case.savePickleData(time, bij, filenames=('bij_' + confinedfield_namesub))
 
 # Else if read invariants data from pickle
 else:
-    invariants = case.readPickleData(time, fileNames = ('Sij_' + confinedfield_namesub,
-                                                        'Rij_' + confinedfield_namesub,
-                                                        'Tij_' + confinedfield_namesub,
-                                                        'bij_' + confinedfield_namesub))
-    sij = invariants['Sij_' + confinedfield_namesub]
-    rij = invariants['Rij_' + confinedfield_namesub]
-    tb = invariants['Tij_' + confinedfield_namesub]
-    bij = invariants['bij_' + confinedfield_namesub]
-    del invariants
+    if calculate_features:
+        invariants = case.readPickleData(time, filenames=('Sij_' + confinedfield_namesub,
+                                                            'Rij_' + confinedfield_namesub,
+                                                            'Tij_' + confinedfield_namesub,
+                                                            'bij_' + confinedfield_namesub))
+        sij = invariants['Sij_' + confinedfield_namesub]
+        rij = invariants['Rij_' + confinedfield_namesub]
+        tb = invariants['Tij_' + confinedfield_namesub]
+        bij = invariants['bij_' + confinedfield_namesub]
+        del invariants
 
 
 """
@@ -424,11 +434,11 @@ if calculate_features:
     del sij, rij, grad_k, k, epsilon, grad_u, u, grad_p
     # If only feature set 1 used for ML input, then do train test data split here
     if save_fields:
-        case.savePickleData(time, fs_data, fileNames='FS_' + fs + '_' + confinedfield_namesub)
+        case.savePickleData(time, fs_data, filenames='FS_' + fs + '_' + confinedfield_namesub)
 
 # Else, directly read feature set data
 else:
-    fs_data = case.readPickleData(time, fileNames='FS_' + fs + '_' + confinedfield_namesub)
+    if prep_train_test_data: fs_data = case.readPickleData(time, filenames='FS_' + fs + '_' + confinedfield_namesub)
 
 
 """
@@ -567,11 +577,11 @@ if process_slices:
         # print('\nFinished getInvariantBasisCoefficientsField in {:.4f} s'.format(t1 - t0))
         # Save tensor invariants related fields
         if save_fields:
-            case.savePickleData(time, sij, fileNames=('Sij_' + slice_type))
-            case.savePickleData(time, rij, fileNames=('Rij_' + slice_type))
-            case.savePickleData(time, tb, fileNames=('Tij_' + slice_type))
-            case.savePickleData(time, bij, fileNames=('bij_' + slice_type))
-            case.savePickleData(time, list_slicecoor[slice_type], fileNames='CC_' + slice_type)
+            case.savePickleData(time, sij, filenames=('Sij_' + slice_type))
+            case.savePickleData(time, rij, filenames=('Rij_' + slice_type))
+            case.savePickleData(time, tb, filenames=('Tij_' + slice_type))
+            case.savePickleData(time, bij, filenames=('bij_' + slice_type))
+            case.savePickleData(time, list_slicecoor[slice_type], filenames='CC_' + slice_type)
 
         # Calculate features
         if fs == 'grad(TKE)':
@@ -593,7 +603,7 @@ if process_slices:
 
         # If only feature set 1 used for ML input, then do train test data split here
         if save_fields:
-            case.savePickleData(time, fs_data, fileNames=('FS_' + fs + '_' + slice_type))
+            case.savePickleData(time, fs_data, filenames=('FS_' + fs + '_' + slice_type))
 
         # Test data preparation
         x = fs_data
@@ -657,11 +667,11 @@ if process_sets:
         tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=scale_tb)
         bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
         if save_fields:
-            case.savePickleData(time, sij, fileNames=('Sij_' + set_type))
-            case.savePickleData(time, rij, fileNames=('Rij_' + set_type))
-            case.savePickleData(time, tb, fileNames=('Tij_' + set_type))
-            case.savePickleData(time, bij, fileNames=('bij_' + set_type))
-            case.savePickleData(time, distance, fileNames='CC_' + set_type)
+            case.savePickleData(time, sij, filenames=('Sij_' + set_type))
+            case.savePickleData(time, rij, filenames=('Rij_' + set_type))
+            case.savePickleData(time, tb, filenames=('Tij_' + set_type))
+            case.savePickleData(time, bij, filenames=('bij_' + set_type))
+            case.savePickleData(time, distance, filenames='CC_' + set_type)
 
         if fs == 'grad(TKE)':
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
@@ -749,7 +759,7 @@ if process_sets:
                 del nulist, r, fs_data2
 
         if save_fields:
-            case.savePickleData(time, fs_data, fileNames=('FS_' + fs + '_' + set_type))
+            case.savePickleData(time, fs_data, filenames=('FS_' + fs + '_' + set_type))
 
         x = fs_data
         y = bij
