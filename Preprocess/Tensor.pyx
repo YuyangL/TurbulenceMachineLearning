@@ -137,9 +137,9 @@ cpdef tuple processReynoldsStress(np.ndarray stress_tensor, bint make_anisotropi
         # eigval = eigval.reshape(tuple(shape_old_eigval))
         # eigvec = eigvec.reshape(tuple(shape_old_matrix))
         # bij = bij.reshape(tuple(shape_old_matrix))
-        eigval = reverseOldGridShape(eigval, shape_old_eigval, infer_matrix_form=False)
-        eigvec = reverseOldGridShape(eigvec, shape_old_matrix)
-        bij = reverseOldGridShape(bij, shape_old_matrix)
+        eigval = reverseOldGridShape(eigval, tuple(shape_old_eigval), infer_matrix_form=False)
+        eigvec = reverseOldGridShape(eigvec, tuple(shape_old_matrix))
+        bij = reverseOldGridShape(bij, tuple(shape_old_matrix))
 
     print('\nObtained bij with shape ' + str(np.shape(bij)) + ', ')
     print(' eigenvalues with shape ' + str(np.shape(eigval)) + ', ')

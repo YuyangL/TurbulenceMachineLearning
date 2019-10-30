@@ -29,7 +29,7 @@ les_case_name = 'LES_Breuer/Re_10595'  # str
 # LES data name to read
 les_data_name = 'Hill_Re_10595_Breuer.csv'  # str
 # Absolute directory of this flow case
-caseDir = '/media/yluan/DNS/PeriodicHill'  # str
+casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
 # Interpolation method when interpolating mesh grids
@@ -80,7 +80,7 @@ fields = ('U', 'k', 'p', 'omega',
 # Ensemble name of fields useful for Machine Learning
 ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 # Initialize case object
-case = FieldData(caseName=rans_case_name, caseDir=caseDir, times=time, fields=fields, save=save_fields)
+case = FieldData(casename=rans_case_name, casedir=casedir, times=time, fields=fields, save=save_fields)
 if estimator_name == "tbdt":
     estimator_name = "TBDT_Kaandorp"
 elif estimator_name == "tbrf":
@@ -205,7 +205,7 @@ rgb_bary_train_mesh = ndimage.rotate(rgb_bary_train_mesh, 90)
 rgb_bary_pred_test_mesh = ndimage.rotate(rgb_bary_pred_test_mesh, 90)
 rgb_bary_pred_train_mesh = ndimage.rotate(rgb_bary_pred_train_mesh, 90)
 xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
-geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
+geometry = np.genfromtxt(casedir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
 figname = 'barycentric_periodichill_test_seed' + str(seed)
 bary_map = BaseFigure((None,), (None,), name=figname, xlabel=xlabel,
                       ylabel=ylabel, save=save_fig, show=show,

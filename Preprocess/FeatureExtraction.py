@@ -100,7 +100,7 @@ def splitTrainTestDataList(list_data, test_fraction=0.2, sample_size=None, repla
 
 
 @timer
-def splitTrainTestData(x, y, randState = None, testSize = 0.2, scalerScheme = None, scaler = None):
+def splitTrainTestData(x, y, randState=None, testSize=0.2, scalerScheme=None, scaler=None):
     from warnings import warn
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import StandardScaler, RobustScaler, QuantileTransformer

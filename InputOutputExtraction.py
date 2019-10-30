@@ -21,11 +21,11 @@ import matplotlib.pyplot as plt
 from warnings import warn
 import time as t
 
-"""
+"""v
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case
-casename = 'ALM_N_H_ParTurb2'  # str
+casename = 'ALM_N_H_OneTurb'  # str
 # Absolute directory of this flow case
 casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
@@ -76,9 +76,9 @@ save_fields, resultfolder = True, 'Result'  # bool; str
 Machine Learning Settings
 """
 # Whether to calculate features or directly read from pickle data
-calculate_features = True  # bool
+calculate_features = False  # bool
 # Whether to split train and test data or directly read from pickle data
-prep_train_test_data = True  # bool
+prep_train_test_data = False  # bool
 # Number of samples for Grid Search before training on all data
 # Also number of samples to do ML, if None, all samples are used for training
 samples_gs, samples_train = 10000, None  # int; int, None
@@ -94,7 +94,7 @@ seed = 123  # int, None
 Visualization Settings
 """
 # Whether to process slices and save them for prediction visualization later
-process_slices, process_sets = False, False  # bool
+process_slices, process_sets = True, True  # bool
 # Slice names for prediction visualization
 slicenames = 'auto'
 set_types = 'auto'
@@ -106,16 +106,20 @@ Process User Inputs, No Need to Change
 # Average fields of interest for reading and processing
 if 'grad(TKE)_grad(p)' in fs:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg') 
+              'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg',
+              'GAvg', 'divDevR')
 elif fs == 'grad(TKE)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean')
+              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean',
+              'GAvg', 'divDevR')
 elif fs == 'grad(p)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'UAvg')
+              'grad_UAvg', 'grad_p_rghAvg', 'UAvg',
+              'GAvg', 'divDevR')
 else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg')
+              'grad_UAvg',
+              'GAvg', 'divDevR')
 
 # Ensemble name of fields useful for Machine Learning
 mlfield_ensemble_name = 'ML_Fields_' + casename
@@ -137,6 +141,7 @@ if 'ParTurb' in casename:
                                            'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
                                            'oneDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines',
                                            'threeDdownstreamTurbines', 'fiveDdownstreamTurbines', 'sevenDdownstreamTurbines')
+    # TODO: update
     if set_types == 'auto': set_types = ('oneDdownstreamSouthernTurbine_H',
                                          'oneDdownstreamNorthernTurbine_H',
                                          'threeDdownstreamSouthernTurbine_H',
@@ -155,11 +160,9 @@ elif casename == 'ALM_N_H_OneTurb':
     if time == 'latestTime': time = '24995.0438025'
     if slicenames == 'auto': slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
      'oneDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine', 'fiveDdownstreamTurbine', 'sevenDdownstreamTurbine')
-    if set_types == 'auto': set_types = ('oneDdownstreamTurbine_H',
-                                         'threeDdownstreamTurbine_H',
-                                         'sevenDdownstreamTurbine_H',
-                                         'oneDdownstreamTurbine_V',
+    if set_types == 'auto': set_types = ('oneDdownstreamTurbine_V',
                                          'threeDdownstreamTurbine_V',
+                                         'fiveDdownstreamTurbine_V',
                                          'sevenDdownstreamTurbine_V')
     # 1 turbine center coordinate at the upwind turbine location
     turblocs = [1118.083, 1279.5, 90.]
@@ -169,6 +172,7 @@ elif 'SeqTurb' in casename:
             time = '25000.1638025'
         elif casename == 'ALM_N_L_SeqTurb':
             time = '23000.135'
+#             FIXME: merge below
 elif casename == 'ALM_N_H_SeqTurb':
     if time == 'latestTime': time = '25000.1638025'
     # FIXME: update
@@ -228,8 +232,7 @@ if confine and confinezone is not None:
             boxl, boxw, boxh = 882, 378, 216
             confinedfield_namesub += '2'
 
-if not confine:
-    confinedfield_namesub = ''
+if not confine: confinedfield_namesub = ''
 
 # Subscript for the slice names
 slicename_sub = 'Slice'
@@ -542,10 +545,14 @@ if process_slices:
                 epsilon = list_slicevals[slice_type][i]
             elif 'uu' in name:
                 uuprime2 = list_slicevals[slice_type][i]
+            elif 'G' in name:
+                g_tke = list_slicevals[slice_type][i]
+            elif 'divDevR' in name:
+                div_devr = list_slicevals[slice_type][i]
             else:
-                warn("\nError: {} not assigned to a variable!".format(name), stacklevel=2)
+                warn("\nError: {} slice not assigned to a variable!".format(name), stacklevel=2)
 
-        # FIXME: uuprime2 probably wrong
+        # TODO: uuprime2 probably wrong, so not rotation for now
         # # Rotate fields if requested
         # if rotz != 0.:
         #     grad_k = rotateData(grad_k, anglez=rotz)
@@ -581,6 +588,11 @@ if process_slices:
             case.savePickleData(time, rij, filenames=('Rij_' + slice_type))
             case.savePickleData(time, tb, filenames=('Tij_' + slice_type))
             case.savePickleData(time, bij, filenames=('bij_' + slice_type))
+            # Visualization related slice data
+            case.savePickleData(time, k, 'TKE_' + slice_type)
+            case.savePickleData(time, grad_u, 'grad(U)_' + slice_type)
+            case.savePickleData(time, g_tke, 'G_' + slice_type)
+            case.savePickleData(time, div_devr, 'div(dev(R))_' + slice_type)
             case.savePickleData(time, list_slicecoor[slice_type], filenames='CC_' + slice_type)
 
         # Calculate features
@@ -610,8 +622,9 @@ if process_slices:
         # y is LES bij shape (n_samples, 6)
         y = bij
         # Prepare GS samples of specified size
-        list_data_test, _ = splitTrainTestDataList([list_slicecoor[slice_type], x, y, tb], test_fraction=0., seed=seed,
-                                                 sample_size=None)
+        # list_data_test, _ = splitTrainTestDataList([list_slicecoor[slice_type], x, y, tb], test_fraction=0., seed=seed,
+        #                                          sample_size=None)
+        list_data_test = [list_slicecoor[slice_type], x, y, tb]
         if save_fields:
             case.savePickleData(time, (list_data_test,), 'list_data_test_' + slice_type)
 
@@ -644,6 +657,7 @@ if process_sets:
                             if set_type in set2 and (grad_kw + '_kSGSmean') in set2:
                                 print(' Calculating total grad(<k>) for {}...'.format(set_type))
                                 grad_k += setcase.data[set2]
+
                     else:
                         k = setcase.data[set]
                         for set2 in setcase.sets:
@@ -659,9 +673,14 @@ if process_sets:
 
                 elif '_eps' in set:
                     epsilon = setcase.data[set]
-
                 elif '_uu' in set:
                     uuprime2 = setcase.data[set]
+                elif '_G' in set:
+                    g_tke = setcase.data[set]
+                elif '_divDevR' in set:
+                    div_devr = setcase.data[set]
+                else:
+                    warn("Error: {} set not assigned to a variable!".format(set), stacklevel=2)
 
         sij, rij = getStrainAndRotationRateTensor(grad_u, tke=k, eps=epsilon, cap=cap_sijrij)
         tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=scale_tb)
@@ -671,8 +690,14 @@ if process_sets:
             case.savePickleData(time, rij, filenames=('Rij_' + set_type))
             case.savePickleData(time, tb, filenames=('Tij_' + set_type))
             case.savePickleData(time, bij, filenames=('bij_' + set_type))
+            # Save (purely) visualization related sets
+            case.savePickleData(time, k, 'TKE_' + set_type)
+            case.savePickleData(time, grad_u, 'grad(U)_' + set_type)
+            case.savePickleData(time, g_tke, 'G_' + set_type)
+            case.savePickleData(time, div_devr, 'div(dev(R))_' + set_type)
             case.savePickleData(time, distance, filenames='CC_' + set_type)
 
+        # Calculate features
         if fs == 'grad(TKE)':
             fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k, k=k, eps=epsilon)
         elif fs == 'grad(p)':
@@ -733,6 +758,17 @@ if process_sets:
                             xline = np.ones_like(distance)*1445.44
                             yline = np.ones_like(distance)*1468.5
 
+                    elif 'fiveDdownstreamTurbine' in set_type:
+                        if 'Southern' in set_type:
+                            xline = np.ones_like(distance)*1789.679
+                            yline = np.ones_like(distance)*1376.262
+                        elif 'Northern' in set_type:
+                            xline = np.ones_like(distance)*1537.679
+                            yline = np.ones_like(distance)*1812.738
+                        else:
+                            xline = np.ones_like(distance)*1663.679
+                            yline = np.ones_like(distance)*1594.5
+
                     # Only for 2nd turbine in SeqTurb
                     elif 'sixDdownstreamTurbineTwo' in set_type:
                         xline = np.ones_like(distance)*2536.632
@@ -763,8 +799,9 @@ if process_sets:
 
         x = fs_data
         y = bij
-        list_data_test, _ = splitTrainTestDataList([distance, x, y, tb], test_fraction=0., seed=seed,
-                                                   sample_size=None)
+        # list_data_test, _ = splitTrainTestDataList([distance, x, y, tb], test_fraction=0., seed=seed,
+        #                                            sample_size=None)
+        list_data_test = [distance, x, y, tb]
         if save_fields:
             case.savePickleData(time, (list_data_test,), 'list_data_test_' + set_type)
 

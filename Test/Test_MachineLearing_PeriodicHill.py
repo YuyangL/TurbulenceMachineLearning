@@ -32,17 +32,20 @@ from tbnn import NetworkStructure, TBNN
 from sklearn.feature_selection import VarianceThreshold
 from scipy.interpolate import interp1d
 from tempfile import mkdtemp
+from numba import njit, prange
 
 """
 User Inputs, Anything Can Be Changed Here
 """
+# Reynolds number of the flow case
+re = 5600
 # Name of the flow case in both RANS and LES
-rans_case_name = 'RANS_Re10595'  # str
-les_case_name = 'LES_Breuer/Re_10595'  # str
+rans_case_name = 'RANS_Re' + str(re)  # str
+les_case_name = 'LES_Breuer/Re_' + str(re)  # str
 # LES data name to read
-les_data_name = 'Hill_Re_10595_Breuer.csv'  # str
+les_data_name = 'Hill_Re_' + str(re) + '_Breuer.csv'  # str
 # Absolute directory of this flow case
-caseDir = '/media/yluan/DNS/PeriodicHill'  # str
+casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
 # Interpolation method when interpolating mesh grids
@@ -55,7 +58,7 @@ nu = 9.438414346389807e-05  # float
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
-process_raw_field, process_invariants = False, False  # bool
+process_raw_field, process_invariants = True, True  # bool
 # The following is only relevant if processInvariants is True
 if process_invariants:
     # Absolute cap value for Sij and Rij; tensor basis Tij
@@ -72,7 +75,7 @@ calculate_features = False  # bool
 # Whether to split train and test data or directly read from pickle data
 split_train_test_data = False  # bool
 # Feature set number
-fs = 'grad(TKE)_grad(p)'  # '1', '12', '123'
+fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
 scaler = None  # 'maxabs', 'minmax', None
 # Whether remove low variance features
 var_threshold = -1  # float
@@ -80,7 +83,7 @@ rf_selector_n_estimators = 0
 rf_selector_threshold = '0.25*median'  # 'median', 'mean', None
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
-train_model, save_estimator = True, True  # bool
+train_model, save_estimator = False, False  # bool
 # Name of the ML estimator
 estimator_name = 'tbdt'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
@@ -149,7 +152,7 @@ seed = 123
 # and/or verbose on "brent"/"brute"/"1000"/"auto" split finding scheme
 tb_verbose, split_verbose = False, False  # bool; bool
 # Fraction of data for testing
-test_fraction = 0.2  # float [0-1]
+test_fraction = 1.  # float [0-1]
 # Whether verbose on GSCV. 0 means off, larger means more verbose
 gs_verbose = 2  # int
 # Number of n-fold cross validation
@@ -196,7 +199,7 @@ fields = ('U', 'k', 'p', 'omega',
 # Ensemble name of fields useful for Machine Learning
 ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 # Initialize case object
-case = FieldData(caseName=rans_case_name, caseDir=caseDir, times=time, fields=fields, save=save_fields)
+case = FieldData(casename=rans_case_name, casedir=casedir, times=time, fields=fields, save=save_fields)
 if estimator_name == "tbdt":
     estimator_name = "TBDT"
 elif estimator_name == "tbrf":
@@ -236,8 +239,8 @@ if process_raw_field:
     # Read cell center coordinates of the whole domain, nCell x 0
     ccx, ccy, ccz, cc = case.readCellCenterCoordinates()
     # Save all whole fields and cell centers
-    case.savePickleData(time, ml_field_ensemble, fileNames=ml_field_ensemble_name)
-    case.savePickleData(time, cc, fileNames='cc')
+    case.savePickleData(time, ml_field_ensemble, filenames=ml_field_ensemble_name)
+    case.savePickleData(time, cc, filenames='CC')
 # Else if directly read pickle data
 else:
     # Load rotated and/or confined field data useful for Machine Learning
@@ -247,7 +250,7 @@ else:
     grad_u, u = ml_field_ensemble[:, 5:14], ml_field_ensemble[:, 14:17]
     grad_p = ml_field_ensemble[:, 17:20]
     # Load confined cell centers too
-    cc = case.readPickleData(time, 'cc')
+    cc = case.readPickleData(time, 'CC')
 
 if plot_u:
     umag = np.sqrt(u[:, 0]**2 + u[:, 1]**2 + u[:, 2]**2)
@@ -270,28 +273,176 @@ if process_invariants:
 
     # Step 3: anisotropy tensor bij from LES of Breuer csv data
     # 0: x; 1: y; 6: u'u'; 7: v'v'; 8: w'w'; 9: u'v'
-    les_data = np.genfromtxt(caseDir + '/' + les_case_name + '/' + les_data_name,
+    les_data = np.genfromtxt(casedir + '/' + les_case_name + '/' + les_data_name,
                              delimiter=',', skip_header=1, usecols=(0, 1, 6, 7, 8, 9))
+    # Mean velocity data from the same csv file, order is <U>, <V>, <W>
+    mean_les_data = np.genfromtxt(casedir + '/' + les_case_name + '/' + les_data_name,
+                                  delimiter=',', skip_header=1, usecols=(2, 3, 4))
+
     # Assign each column to corresponding field variable
     # LES cell centers with z being 0
     cc_les = np.zeros((len(les_data), 3))
     cc_les[:, :2] = les_data[:, :2]
-    # LES Reynolds stress has 0 u'w' and v'w' 
-    uu_prime2_les = np.zeros((len(cc_les), 6))
+    for i in range(1, len(cc_les)):
+        if cc_les[i, 0] < cc_les[i - 1, 0]:
+            nx = i
+            break
+
+    ccx_les_mesh = cc_les[:, 0].reshape((-1, nx))
+    ccy_les_mesh = cc_les[:, 1].reshape((-1, nx))
+    umean_les_mesh = mean_les_data[:, 0].reshape((-1, nx))
+    vmean_les_mesh = mean_les_data[:, 1].reshape((-1, nx))
+    wmean_les_mesh = mean_les_data[:, 2].reshape((-1, nx))
+    umean_les_mesh = np.dstack((umean_les_mesh, vmean_les_mesh, wmean_les_mesh))
+    ccy_sortidx = np.argsort(ccy_les_mesh[:, 0])
+    ccx_les_mesh = ccx_les_mesh[ccy_sortidx]
+    ccy_les_mesh = ccy_les_mesh[ccy_sortidx]
+    umean_les_mesh = umean_les_mesh[ccy_sortidx]
+    dudx_mesh = np.ones_like(umean_les_mesh)*9999
+    # Go through each U component and get x derivative
+    for i in range(3):
+        # Upwind diff for first cell
+        dudx_mesh[:, 0, i] = (umean_les_mesh[:, 1, i] - umean_les_mesh[:, 0, i])/(ccx_les_mesh[:, 1] - ccx_les_mesh[:, 0])
+        # Central diff for inner cells
+        dudx_mesh[:, 1:-1, i] = (umean_les_mesh[:, 2:, i] - umean_les_mesh[:, :-2, i])/(ccx_les_mesh[:, 2:] - ccx_les_mesh[:, :-2])
+        # Downwind diff for last cell
+        dudx_mesh[:, -1, i] = (umean_les_mesh[:, -1, i] - umean_les_mesh[:, -2, i])/(ccx_les_mesh[:, -1] - ccx_les_mesh[:, -2])
+
+    wronggrad_x = np.where(dudx_mesh == 9999)
+
+    dudy_mesh = np.ones_like(umean_les_mesh)*9999
+    # Go through each U component and get y derivative
+    for i in range(3):
+        dudy_mesh[0, :, i] = (umean_les_mesh[1, :, i] - umean_les_mesh[0, :, i])/(
+                    ccy_les_mesh[1, :] - ccy_les_mesh[0, :])
+        dudy_mesh[1:-1, :, i] = (umean_les_mesh[2:, :, i] - umean_les_mesh[:-2, :, i])/(
+                    ccy_les_mesh[2:, :] - ccy_les_mesh[:-2, :])
+        dudy_mesh[-1, :, i] = (umean_les_mesh[-1, :, i] - umean_les_mesh[-2, :, i])/(
+                    ccy_les_mesh[-1, :] - ccy_les_mesh[-2, :])
+
+    wronggrad_y = np.where(dudy_mesh == 9999)
+
+    # Go through every dx component and interpolate to RANS grid (not mesh)
+    print("\nInterpolating LES velocity gradients dudx, dudy to RANS grid...")
+    dudx = np.empty((len(cc), 3))
+    dudy = np.empty((len(cc), 3))
+    # Since 2D flow case, d*/dz is always 0
+    dudz = np.zeros((len(cc), 3))
+    cc_les_sorted = np.array([ccx_les_mesh.ravel(), ccy_les_mesh.ravel()]).T
+    for i in range(3):
+        dudx[:, i] = griddata(cc_les_sorted, dudx_mesh[..., i].ravel(), cc[:, :2], method=interp_method)
+        dudy[:, i] = griddata(cc_les_sorted, dudy_mesh[..., i].ravel(), cc[:, :2], method=interp_method)
+
+    @njit(parallel=True)
+    def regroupGradU(dudx, dudy, dudz):
+        grad_u_les = np.empty((len(cc), 9))
+        for i in prange(len(dudx)):
+            # Enforcing zero trace since div(U) = 0
+            # dw/dz + du/dx + dv/dy = 0.
+            dudz[i, 2] = 0. - dudx[i, 0] - dudy[i, 1]
+            # du/dx, du/dy, du/dz
+            grad_u_les[i, 0], grad_u_les[i, 1], grad_u_les[i, 2] = dudx[i, 0], dudy[i, 0], dudz[i, 0]
+            # dv/dx, dv/dy, dv/dz
+            grad_u_les[i, 3], grad_u_les[i, 4], grad_u_les[i, 5] = dudx[i, 1], dudy[i, 1], dudz[i, 1]
+            # dw/dx, dw/dy, dw/dz
+            grad_u_les[i, 6], grad_u_les[i, 7], grad_u_les[i, 8] = dudx[i, 2], dudy[i, 2], dudz[i, 2]
+
+        return grad_u_les
+
+    # Finally, LES grad(U) of shape (n_samples, 9), where n_samples is RANS samples
+    grad_u_les = regroupGradU(dudx, dudy, dudz)
+
+    # LES Reynolds stress has 0 u'w' and v'w'
+    uu_prime2_les_all = np.zeros((len(cc_les), 6))
     # u'u', u'v'
-    uu_prime2_les[:, 0], uu_prime2_les[:, 1] = les_data[:, 2], les_data[:, 5]
+    uu_prime2_les_all[:, 0], uu_prime2_les_all[:, 1] = les_data[:, 2], les_data[:, 5]
     # v'v'
-    uu_prime2_les[:, 3] = les_data[:, 3]
+    uu_prime2_les_all[:, 3] = les_data[:, 3]
     # w'w'
-    uu_prime2_les[:, 5] = les_data[:, 4]
+    uu_prime2_les_all[:, 5] = les_data[:, 4]
     # Get LES anisotropy tensor field bij
-    bij_les_all = case.getAnisotropyTensorField(uu_prime2_les, use_oldshape=False)
+    bij_les_all = case.getAnisotropyTensorField(uu_prime2_les_all, use_oldshape=False)
+    # Sort according to y from low to high after mesh grid treatment
+    uu_prime2_les_all_mesh = uu_prime2_les_all.reshape((-1, nx, 6))[ccy_sortidx]
+    # Calculate turbulent shear stress gradient -div(ui'uj')
+    @njit(parallel=True, fastmath=True)
+    def calcSymmTensorDivergence2D(tensor_mesh, ccx_mesh, ccy_mesh):
+        drdx = np.empty_like(tensor_mesh)
+        drdy = np.empty_like(tensor_mesh)
+        for i in prange(tensor_mesh.shape[2]):
+            # First dRij/dx
+            # Upwind diff for first cell
+            drdx[:, 0, i] = (tensor_mesh[:, 1, i] - tensor_mesh[:, 0, i])/(
+                        ccx_mesh[:, 1] - ccx_mesh[:, 0])
+            # Central diff for inner cells
+            drdx[:, 1:-1, i] = (tensor_mesh[:, 2:, i] - tensor_mesh[:, :-2, i])/(
+                        ccx_mesh[:, 2:] - ccx_mesh[:, :-2])
+            # Downwind diff for last cell
+            drdx[:, -1, i] = (tensor_mesh[:, -1, i] - tensor_mesh[:, -2, i])/(
+                        ccx_mesh[:, -1] - ccx_mesh[:, -2])
+
+            # Repeat for dRij/dy
+            drdy[0, :, i] = (tensor_mesh[1, :, i] - tensor_mesh[0, :, i])/(
+                    ccy_mesh[1, :] - ccy_mesh[0, :])
+            drdy[1:-1, :, i] = (tensor_mesh[2:, :, i] - tensor_mesh[:-2, :, i])/(
+                    ccy_mesh[2:, :] - ccy_mesh[:-2, :])
+            drdy[-1, :, i] = (tensor_mesh[-1, :, i] - tensor_mesh[-2, :, i])/(
+                    ccy_mesh[-1, :] - ccy_mesh[-2, :])
+
+        # Now perform the divergence
+        tensor_div_mesh = np.empty((tensor_mesh.shape[0], tensor_mesh.shape[1], 3))
+        # 1st row: dR11/dx + dR12/dy + dR13/dz
+        # Assuming no component vary with z
+        tensor_div_mesh[..., 0] = drdx[..., 0] + drdy[..., 1] + 0.
+        # 2nd row: dR12/dx + dR22/dy + dR23/dz
+        tensor_div_mesh[..., 1] = drdx[..., 1] + drdy[..., 3] + 0.
+        # 3rd row: dR13/dx + dR23/dy + dR33/dz
+        tensor_div_mesh[..., 2] = drdx[..., 2] + drdy[..., 4] + 0.
+        return tensor_div_mesh
+
+    div_uuprime2_les_mesh = -calcSymmTensorDivergence2D(uu_prime2_les_all_mesh, ccx_les_mesh, ccy_les_mesh)
+    # Go through all 3 components of the divergence and interpolate it to RANS grid
+    div_uuprime2_les = np.empty((len(cc), 3))
+    for i in range(3):
+        div_uuprime2_les[:, i] = griddata(cc_les_sorted, div_uuprime2_les_mesh[..., i].ravel(), cc[:, :2], method=interp_method)
+
     # Interpolate LES bij to the same grid of RANS
+    uu_prime2_les = np.empty((len(cc), 6))
     bij_les = np.empty((len(cc), 6))
     # Go through every bij component and interpolate
-    print("\nInterpolating LES bij to RANS grid...")
+    print("\nInterpolating LES ui'uj' and bij to RANS grid...")
     for i in range(6):
+        uu_prime2_les[:, i] = griddata(cc_les[:, :2], uu_prime2_les_all[:, i], cc[:, :2], method=interp_method)
         bij_les[:, i] = griddata(cc_les[:, :2], bij_les_all[:, i], cc[:, :2], method=interp_method)
+
+    # LES TKE in RANS grid
+    k_les = .5*(uu_prime2_les[:, 0] + uu_prime2_les[:, 3] + uu_prime2_les[:, 5])
+
+    # uup2 = np.empty((len(cc), 6))
+    # for i in range(6):
+    #     uup2[:, i] = 2/3.*k_les + 2.*k_les*bij_les[:, i] if i in (0, 3, 5) else 2.*k_les*bij_les[:, i]
+    #
+    # uup2 = expandSymmetricTensor(uup2).reshape((-1, 3, 3))
+    # uup3 = expandSymmetricTensor(uu_prime2_les).reshape((-1, 3, 3))
+    # diff = uup3 - uup2
+
+
+
+    # Calculate LES TKE production G (density normalized) based on RANS grid
+    # Actual G is ui'uj':u_i,j
+    # G with Boussinesq apprx is 2nut*Sij:Sij
+    # G with predicted bij is -2k*bij:u_i,j since 2nut*Sij ~ -2k*bij
+    g_tke_les = np.empty(len(cc))
+    for i in range(len(cc)):
+        # A 3 x 3 Reynolds stress at current sample
+        uu_prime2_les_i = expandSymmetricTensor(uu_prime2_les[i]).reshape((3, 3))
+        grad_u_les_i = grad_u_les[i].reshape((3, 3))
+        # Double inner dot for Rij:u_i,j
+        g_tke_les[i] = np.tensordot(-uu_prime2_les_i, grad_u_les_i)
+
+        # bij_les_i = expandSymmetricTensor(bij_les[i]).reshape((3, 3))
+        # g2[i] = -2.*k_les[i]*np.tensordot(bij_les_i, grad_u_les_i)
+
 
     # # Expand bij from 6 components to its full 9 components form
     # bij_les = np.zeros((len(cc), 9))
@@ -303,14 +454,22 @@ if process_invariants:
     # bij_les[:, 6], bij_les[:, 7:] = bij6_les[:, 2], bij6_les[:, 4:]
     # If save_fields, save the processed RANS invariants and LES bij (interpolated to same grid of RANS)
     if save_fields:
-        case.savePickleData(time, sij, fileNames = ('Sij'))
-        case.savePickleData(time, rij, fileNames = ('Rij'))
-        case.savePickleData(time, tb, fileNames = ('Tij'))
-        case.savePickleData(time, bij_les, fileNames = ('bij_LES'))
+        case.savePickleData(time, sij, filenames=('Sij'))
+        case.savePickleData(time, rij, filenames=('Rij'))
+        case.savePickleData(time, tb, filenames=('Tij'))
+        case.savePickleData(time, bij_les, filenames=('bij_LES'))
+        case.savePickleData(time, uu_prime2_les, filenames=('uuPrime2_LES'))
+        # Save TKE production G related fields too
+        case.savePickleData(time, g_tke_les, filenames=('G_LES'))
+        case.savePickleData(time, grad_u_les, filenames=('grad(U)_LES'))
+        case.savePickleData(time, k_les, filenames=('k_LES'))
+        # Also save turbulent shear stress gradient
+        case.savePickleData(time, div_uuprime2_les, 'div(uuPrime2)_LES')
+
 
 # Else if read RANS invariants and LES bij data from pickle
 else:
-    invariants = case.readPickleData(time, fileNames=('Sij',
+    invariants = case.readPickleData(time, filenames=('Sij',
                                                         'Rij',
                                                         'Tij',
                                                         'bij_LES'))
@@ -318,7 +477,7 @@ else:
     rij = invariants['Rij']
     tb = invariants['Tij']
     bij_les = invariants['bij_LES']
-    cc = case.readPickleData(time, fileNames='cc')
+    cc = case.readPickleData(time, filenames='CC')
 
 
 """
@@ -333,7 +492,7 @@ if calculate_features:
         fs_data, labels = getInvariantFeatureSet(sij, rij, grad_k=grad_k, grad_p=grad_p, k=k, eps=epsilon, u=u, grad_u=grad_u)
         if '+' in fs:
             nu *= np.ones_like(k)
-            geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/' + "geometry.csv", delimiter=",")[:1000, :2]
+            geometry = np.genfromtxt(casedir + '/' + rans_case_name + '/' + "geometry.csv", delimiter=",")[:1000, :2]
             # fperiodic = interp1d(geometry[:, 0], geometry[:, 1], kind='cubic')
             # d0 = cc[:, 1] - fperiodic(cc[:, 0])
             d1 = 3.036 - cc[:, 1]
@@ -344,11 +503,11 @@ if calculate_features:
 
     # If only feature set 1 used for ML input, then do train test data split here
     if save_fields:
-        case.savePickleData(time, fs_data, fileNames = ('FS_' + fs))
+        case.savePickleData(time, fs_data, filenames=('FS_' + fs))
 
 # Else, directly read feature set data
 else:
-    fs_data = case.readPickleData(time, fileNames = ('FS_' + fs))
+    fs_data = case.readPickleData(time, filenames=('FS_' + fs))
 
 
 """
@@ -533,21 +692,21 @@ if train_model:
             regressor.fit(x_train, y_train, **fit_param)
         else:
             _, _ = performEstimatorGridSearchCV(regressor_gs, regressor, x_train, y_train,
-                                                       tb_kw=tbkey, tb_gs=tb_train, savedir=case.resultPaths[time], final_name=estimator_name)
+                                                       tb_kw=tbkey, tb_gs=tb_train, savedir=case.result_paths[time], final_name=estimator_name)
 
     else:
         _, _ = performEstimatorGridSearch(regressor_gs, regressor,
                                    tuneparams, x_train, y_train,
                                    tbkey, tb_train, refit=True,
-                                          savedir=case.resultPaths[time], final_name=estimator_name)
+                                          savedir=case.result_paths[time], final_name=estimator_name)
 
     t1 = t.time()
     print('\nFinished {0} in {1:.4f} s'.format(estimator_name, t1 - t0))
     if save_estimator:
-        dump(regressor, case.resultPaths[time] + estimator_name + '.joblib')
+        dump(regressor, case.result_paths[time] + estimator_name + '.joblib')
 
 else:
-    regressor = load(case.resultPaths[time] + estimator_name + '.joblib')
+    regressor = load(case.result_paths[time] + estimator_name + '.joblib')
 
 if estimator_name != 'TBNN':
     score_test = regressor.score(x_test, y_test, tb=tb_test)
@@ -570,7 +729,7 @@ if estimator_name == 'TBNN':
     score_test = regressor.rmse_score(y_test, y_pred_test)
 
 # print('\n\nLoading regressor... \n')
-# reg2 = load(case.resultPaths[time] + estimator_name + '.joblib')
+# reg2 = load(case.result_paths[time] + estimator_name + '.joblib')
 # score_test2 = reg2.score(x_test, y_test, tb=tb_test)
 # score_train2 = reg2.score(x_train, y_train, tb=tb_train)
 #
@@ -622,18 +781,18 @@ print('\nFinished interpolating mesh data for bij in {:.4f} s'.format(t1 - t0))
 
 
 """
-Plotting
+Plot Barycentric Map
 """
 rgb_bary_test_mesh = ndimage.rotate(rgb_bary_test_mesh, 90)
 rgb_bary_train_mesh = ndimage.rotate(rgb_bary_train_mesh, 90)
 rgb_bary_pred_test_mesh = ndimage.rotate(rgb_bary_pred_test_mesh, 90)
 rgb_bary_pred_train_mesh = ndimage.rotate(rgb_bary_pred_train_mesh, 90)
 xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
-geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
+geometry = np.genfromtxt(casedir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
 figname = 'barycentric_periodichill_test_seed' + str(seed)
 bary_map = BaseFigure((None,), (None,), name=figname, xlabel=xlabel,
                       ylabel=ylabel, save=save_fig, show=show,
-                      figdir=case.resultPaths[time],
+                      figdir=case.result_paths[time],
                       figheight_multiplier=0.7)
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=bary_map.gray)
@@ -651,7 +810,7 @@ bary_map.axes.set_xlabel(bary_map.xlabel)
 bary_map.axes.set_ylabel(bary_map.ylabel)
 bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + figname + '.' + ext, dpi=dpi)
+    plt.savefig(case.result_paths[time] + figname + '.' + ext, dpi=dpi)
 
 plt.close()
 
@@ -662,7 +821,7 @@ bary_map.axes.set_xlabel(bary_map.xlabel)
 bary_map.axes.set_ylabel(bary_map.ylabel)
 bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
+    plt.savefig(case.result_paths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
 plt.close()
 
@@ -673,7 +832,7 @@ bary_map.axes.set_xlabel(bary_map.xlabel)
 bary_map.axes.set_ylabel(bary_map.ylabel)
 bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
+    plt.savefig(case.result_paths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
 plt.close()
 
@@ -684,100 +843,107 @@ bary_map.axes.set_xlabel(bary_map.xlabel)
 bary_map.axes.set_ylabel(bary_map.ylabel)
 bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
+    plt.savefig(case.result_paths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
 plt.close()
 
-fignames_predtest = ('b11_periodichill_pred_test_seed' + str(seed),
-            'b12_periodichill_pred_test_seed' + str(seed),
-            'b13_periodichill_pred_test_seed' + str(seed),
-            'b22_periodichill_pred_test_seed' + str(seed),
-            'b23_periodichill_pred_test_seed' + str(seed),
-            'b33_periodichill_pred_test_seed' + str(seed))
-fignames_test = ('b11_periodichill_test_seed' + str(seed),
-                     'b12_periodichill_test_seed' + str(seed),
-                     'b13_periodichill_test_seed' + str(seed),
-                     'b22_periodichill_test_seed' + str(seed),
-                     'b23_periodichill_test_seed' + str(seed),
-                     'b33_periodichill_test_seed' + str(seed))
-fignames_predtrain = ('b11_periodichill_pred_train_seed' + str(seed),
-                     'b12_periodichill_pred_train_seed' + str(seed),
-                     'b13_periodichill_pred_train_seed' + str(seed),
-                     'b22_periodichill_pred_train_seed' + str(seed),
-                     'b23_periodichill_pred_train_seed' + str(seed),
-                     'b33_periodichill_pred_train_seed' + str(seed))
-fignames_train = ('b11_periodichill_train_seed' + str(seed),
-                 'b12_periodichill_train_seed' + str(seed),
-                 'b13_periodichill_train_seed' + str(seed),
-                 'b22_periodichill_train_seed' + str(seed),
-                 'b23_periodichill_train_seed' + str(seed),
-                 'b33_periodichill_train_seed' + str(seed))
-zlabels = ('$b_{11}$ [-]', '$b_{12}$ [-]', '$b_{13}$ [-]', '$b_{22}$ [-]', '$b_{23}$ [-]', '$b_{33}$ [-]')
-zlabels_pred = ('$\hat{b}_{11}$ [-]', '$\hat{b}_{12}$ [-]', '$\hat{b}_{13}$ [-]', '$\hat{b}_{22}$ [-]', '$\hat{b}_{23}$ [-]', '$\hat{b}_{33}$ [-]')
-figheight_multiplier = 1.1
-# Go through every bij component and plot
-for i in range(len(zlabels)):
-    bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xlabel=xlabel,
-                                     ylabel=ylabel, val_label=zlabels_pred[i],
-                                     save=save_fig, show=show,
-                                     figdir=case.resultPaths[time],
-                                     figwidth='1/3',
-                                     val_lim=bijlims,
-                                     rotate_img=True,
-                                     extent=extent_test,
-                                     figheight_multiplier=figheight_multiplier)
-    bij_predtest_plot.initializeFigure()
-    bij_predtest_plot.plotFigure()
-    bij_predtest_plot.axes.add_patch(next(patches))
-    bij_predtest_plot.finalizeFigure()
 
-    bij_test_plot = Plot2D_Image(val=y_test_mesh[:, :, i], name=fignames_test[i], xlabel=xlabel,
-                                     ylabel=ylabel, val_label=zlabels[i],
-                                     save=save_fig, show=show,
-                                     figdir=case.resultPaths[time],
-                                     figwidth='1/3',
-                                     val_lim=bijlims,
-                                     rotate_img=True,
-                                     extent=extent_test,
-                                    figheight_multiplier=figheight_multiplier)
-    bij_test_plot.initializeFigure()
-    bij_test_plot.plotFigure()
-    bij_test_plot.axes.add_patch(next(patches))
-    bij_test_plot.finalizeFigure()
+"""
+Plot bij
+"""
+# fignames_predtest = ('b11_periodichill_pred_test_seed' + str(seed),
+#             'b12_periodichill_pred_test_seed' + str(seed),
+#             'b13_periodichill_pred_test_seed' + str(seed),
+#             'b22_periodichill_pred_test_seed' + str(seed),
+#             'b23_periodichill_pred_test_seed' + str(seed),
+#             'b33_periodichill_pred_test_seed' + str(seed))
+# fignames_test = ('b11_periodichill_test_seed' + str(seed),
+#                      'b12_periodichill_test_seed' + str(seed),
+#                      'b13_periodichill_test_seed' + str(seed),
+#                      'b22_periodichill_test_seed' + str(seed),
+#                      'b23_periodichill_test_seed' + str(seed),
+#                      'b33_periodichill_test_seed' + str(seed))
+# fignames_predtrain = ('b11_periodichill_pred_train_seed' + str(seed),
+#                      'b12_periodichill_pred_train_seed' + str(seed),
+#                      'b13_periodichill_pred_train_seed' + str(seed),
+#                      'b22_periodichill_pred_train_seed' + str(seed),
+#                      'b23_periodichill_pred_train_seed' + str(seed),
+#                      'b33_periodichill_pred_train_seed' + str(seed))
+# fignames_train = ('b11_periodichill_train_seed' + str(seed),
+#                  'b12_periodichill_train_seed' + str(seed),
+#                  'b13_periodichill_train_seed' + str(seed),
+#                  'b22_periodichill_train_seed' + str(seed),
+#                  'b23_periodichill_train_seed' + str(seed),
+#                  'b33_periodichill_train_seed' + str(seed))
+# zlabels = ('$b_{11}$ [-]', '$b_{12}$ [-]', '$b_{13}$ [-]', '$b_{22}$ [-]', '$b_{23}$ [-]', '$b_{33}$ [-]')
+# zlabels_pred = ('$\hat{b}_{11}$ [-]', '$\hat{b}_{12}$ [-]', '$\hat{b}_{13}$ [-]', '$\hat{b}_{22}$ [-]', '$\hat{b}_{23}$ [-]', '$\hat{b}_{33}$ [-]')
+# figheight_multiplier = 1.1
+# # Go through every bij component and plot
+# for i in range(len(zlabels)):
+#     bij_predtest_plot = Plot2D_Image(val=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xlabel=xlabel,
+#                                      ylabel=ylabel, val_label=zlabels_pred[i],
+#                                      save=save_fig, show=show,
+#                                      figdir=case.result_paths[time],
+#                                      figwidth='1/3',
+#                                      val_lim=bijlims,
+#                                      rotate_img=True,
+#                                      extent=extent_test,
+#                                      figheight_multiplier=figheight_multiplier)
+#     bij_predtest_plot.initializeFigure()
+#     bij_predtest_plot.plotFigure()
+#     bij_predtest_plot.axes.add_patch(next(patches))
+#     bij_predtest_plot.finalizeFigure()
+# 
+#     bij_test_plot = Plot2D_Image(val=y_test_mesh[:, :, i], name=fignames_test[i], xlabel=xlabel,
+#                                      ylabel=ylabel, val_label=zlabels[i],
+#                                      save=save_fig, show=show,
+#                                      figdir=case.result_paths[time],
+#                                      figwidth='1/3',
+#                                      val_lim=bijlims,
+#                                      rotate_img=True,
+#                                      extent=extent_test,
+#                                     figheight_multiplier=figheight_multiplier)
+#     bij_test_plot.initializeFigure()
+#     bij_test_plot.plotFigure()
+#     bij_test_plot.axes.add_patch(next(patches))
+#     bij_test_plot.finalizeFigure()
+# 
+#     bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xlabel=xlabel,
+#                                      ylabel=ylabel, val_label=zlabels_pred[i],
+#                                      save=save_fig, show=show,
+#                                      figdir=case.result_paths[time],
+#                                      figwidth='1/3',
+#                                      val_lim=bijlims,
+#                                      rotate_img=True,
+#                                      extent=extent_test,
+#                                       figheight_multiplier=figheight_multiplier)
+#     bij_predtrain_plot.initializeFigure()
+#     bij_predtrain_plot.plotFigure()
+#     bij_predtrain_plot.axes.add_patch(next(patches))
+#     bij_predtrain_plot.finalizeFigure()
+# 
+#     bij_train_plot = Plot2D_Image(val=y_train_mesh[:, :, i], name=fignames_train[i], xlabel=xlabel,
+#                                      ylabel=ylabel, val_label=zlabels[i],
+#                                      save=save_fig, show=show,
+#                                      figdir=case.result_paths[time],
+#                                      figwidth='1/3',
+#                                      val_lim=bijlims,
+#                                      rotate_img=True,
+#                                      extent=extent_test,
+#                                     figheight_multiplier=figheight_multiplier)
+#     bij_train_plot.initializeFigure()
+#     bij_train_plot.plotFigure()
+#     bij_train_plot.axes.add_patch(next(patches))
+#     bij_train_plot.finalizeFigure()
 
-    bij_predtrain_plot = Plot2D_Image(val=y_pred_train_mesh[:, :, i], name=fignames_predtrain[i], xlabel=xlabel,
-                                     ylabel=ylabel, val_label=zlabels_pred[i],
-                                     save=save_fig, show=show,
-                                     figdir=case.resultPaths[time],
-                                     figwidth='1/3',
-                                     val_lim=bijlims,
-                                     rotate_img=True,
-                                     extent=extent_test,
-                                      figheight_multiplier=figheight_multiplier)
-    bij_predtrain_plot.initializeFigure()
-    bij_predtrain_plot.plotFigure()
-    bij_predtrain_plot.axes.add_patch(next(patches))
-    bij_predtrain_plot.finalizeFigure()
 
-    bij_train_plot = Plot2D_Image(val=y_train_mesh[:, :, i], name=fignames_train[i], xlabel=xlabel,
-                                     ylabel=ylabel, val_label=zlabels[i],
-                                     save=save_fig, show=show,
-                                     figdir=case.resultPaths[time],
-                                     figwidth='1/3',
-                                     val_lim=bijlims,
-                                     rotate_img=True,
-                                     extent=extent_test,
-                                    figheight_multiplier=figheight_multiplier)
-    bij_train_plot.initializeFigure()
-    bij_train_plot.plotFigure()
-    bij_train_plot.axes.add_patch(next(patches))
-    bij_train_plot.finalizeFigure()
+
 
 
     # bij_predtest_plot = Plot2D(ccx_test_mesh, ccy_test_mesh, z2D=y_pred_test_mesh[:, :, i], name=fignames_predtest[i], xLabel=xlabel,
     #                       yLabel=ylabel, zLabel=zlabels[i],
     #                       save=save_fig, show=show,
-    #                       figDir=case.resultPaths[time],
+    #                       figDir=case.result_paths[time],
     #                            figWidth='1/3')
     # bij_predtest_plot.initializeFigure()
     # bij_predtest_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
@@ -787,7 +953,7 @@ for i in range(len(zlabels)):
     # bij_test_plot = Plot2D(ccx_test_mesh, ccy_test_mesh, z2D=y_test_mesh[:, :, i], name=fignames_test[i], xLabel=xlabel,
     #                            yLabel=ylabel, zLabel=zlabels[i],
     #                            save=save_fig, show=show,
-    #                            figDir=case.resultPaths[time],
+    #                            figDir=case.result_paths[time],
     #                            figWidth='1/3')
     # bij_test_plot.initializeFigure()
     # bij_test_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
@@ -798,7 +964,7 @@ for i in range(len(zlabels)):
     #                            xLabel=xlabel,
     #                            yLabel=ylabel, zLabel=zlabels[i],
     #                            save=save_fig, show=show,
-    #                            figDir=case.resultPaths[time],
+    #                            figDir=case.result_paths[time],
     #                            figWidth='1/3')
     # bij_predtrain_plot.initializeFigure()
     # bij_predtrain_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)
@@ -808,7 +974,7 @@ for i in range(len(zlabels)):
     # bij_train_plot = Plot2D(ccx_train_mesh, ccy_train_mesh, z2D=y_train_mesh[:, :, i], name=fignames_train[i], xLabel=xlabel,
     #                        yLabel=ylabel, zLabel=zlabels[i],
     #                        save=save_fig, show=show,
-    #                        figDir=case.resultPaths[time],
+    #                        figDir=case.result_paths[time],
     #                        figWidth='1/3')
     # bij_train_plot.initializeFigure()
     # bij_train_plot.plotFigure(contourLvl=contour_lvl, zlims=bijlims)

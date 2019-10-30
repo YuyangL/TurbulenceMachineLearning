@@ -26,7 +26,7 @@ les_case_name = 'LES_Breuer/Re_10595'  # str
 # LES data name to read
 les_data_name = 'Hill_Re_10595_Breuer.csv'  # str
 # Absolute directory of this flow case
-caseDir = '/media/yluan/DNS/PeriodicHill'  # str
+casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
 # Interpolation method when interpolating mesh grids
@@ -83,7 +83,7 @@ if estimator_name == 'tbdt': estimator_name = 'TBDT'
 # Ensemble name of fields useful for Machine Learning
 ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 # Initialize case object
-case = FieldData(caseName=rans_case_name, caseDir=caseDir, times=time, fields=fields)
+case = FieldData(casename=rans_case_name, casedir=casedir, times=time, fields=fields)
 
 
 """
@@ -100,7 +100,7 @@ x_test, y_test, tb_test = list_data_test[1:4]
 
 
 print('\n\nLoading regressor... \n')
-regressor = load(case.resultPaths[time] + estimator_name + '.joblib')
+regressor = load(case.result_paths[time] + estimator_name + '.joblib')
 score_test = regressor.score(x_test, y_test, tb=tb_test)
 score_train = regressor.score(x_train, y_train, tb=tb_train)
 
@@ -275,7 +275,7 @@ print("It is %s %% of all nodes." % (100 * len(common_node_id) / n_nodes,))
 Visualize Features with Importance as Shade
 """
 figname = 'NoveltyFeatures_i' + str(b11_outmax_idx)
-xdir = case.resultPaths[time] + '/X'
+xdir = case.result_paths[time] + '/X'
 os.makedirs(xdir, exist_ok=True)
 xlabel, ylabel = 'Feature', 'Value'
 list_x, list_y = (np.arange(x_test.shape[1]) + 1,)*2, (x_out[0], x_out[1])
@@ -297,7 +297,7 @@ xplot.finalizeFigure(xyscale=('linear', 'symlog'))
 Visualize g', Tij' and Cumulative (Tij*g)' as Shade
 """
 figname = 'T11g_diff_i' + str(b11_outmax_idx)
-gdir = case.resultPaths[time] + '/g'
+gdir = case.result_paths[time] + '/g'
 os.makedirs(gdir, exist_ok=True)
 list_x = (np.arange(len(t11_test)) + 1,)*2
 list_y = t11_diff, g_diff

@@ -48,7 +48,7 @@ xlabel = 'Distance [m]'
 fieldrot = 30.  # float
 # When plotting, the mesh has to be uniform by interpolation, specify target size
 uniform_mesh_size = 1e6  # int
-# Subsample for barymap coordinates, jump every subsample
+# Subsample for barymap coordinates, jump every "subsample"
 subsample = 50  # int
 figheight_multiplier = 1.  # float
 # Limit for bij plot
@@ -157,24 +157,28 @@ estimator_name += '_Confined' + str(confinezone)
 # Average fields of interest for reading and processing
 if fs == 'grad(TKE)_grad(p)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg')
+              'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg', 
+              'GAvg', 'divDevR')
 elif fs == 'grad(TKE)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean')
+              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean',
+              'GAvg', 'divDevR')
 elif fs == 'grad(p)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'UAvg')
+              'grad_UAvg', 'grad_p_rghAvg', 'UAvg',
+              'GAvg', 'divDevR')
 else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg')
+              'grad_UAvg',
+              'GAvg', 'divDevR')
 
 uniform_mesh_size = int(uniform_mesh_size)
 figdir = estimator_fullpath + '/' + figfolder
 os.makedirs(figdir, exist_ok=True)
 if fieldrot > 2*np.pi: fieldrot /= 180./np.pi
 # Initialize case object for both ML and test case
-# case_ml = FieldData(caseName=ml_casename, caseDir=casedir, times=time, fields=fields, save=False)
-case = FieldData(caseName=test_casename, caseDir=casedir, times=time, fields=fields, save=False)
+# case_ml = FieldData(casename=ml_casename, casedir=casedir, times=time, fields=fields, save=False)
+case = FieldData(casename=test_casename, casedir=casedir, times=time, fields=fields, save=False)
 
 
 """
@@ -197,6 +201,11 @@ if plotslices:
         else:
             slicedir = 'rz'
 
+        # Read slice data
+        k = case.readPickleData(time, 'TKE_' + slicename)
+        grad_u = case.readPickleData(time, 'grad(U)_' + slicename)
+        g_tke = case.readPickleData(time, 'G_' + slicename)
+        div_devr = case.readPickleData(time, 'div(dev(R))_' + slicename)
         list_data_test = case.readPickleData(time, 'list_data_test_' + slicename)
         ccx_test = list_data_test[0][:, 0]
         ccy_test = list_data_test[0][:, 1]
@@ -412,10 +421,16 @@ if plotlines:
         x_bary_pred_all, y_bary_pred_all = [], []
         x_bary_all, y_bary_all = [], []
         for orient in ('H', 'V'):
+            k = case.readPickleData(time, 'TKE_' + set_type + '_' + orient)
+            grad_u = case.readPickleData(time, 'grad(U)_' + set_type + '_' + orient)
+            g_tke = case.readPickleData(time, 'G_' + set_type + '_' + orient)
+            div_devr = case.readPickleData(time, 'div(dev(R))_' + set_type + '_' + orient)
             list_data_test = case.readPickleData(time, 'list_data_test_' + set_type + '_' + orient)
             distance_test = list_data_test[0]
+            # Subsampled distance data
             distance_test_subsamp = distance_test[::subsample]
             x_test = list_data_test[1]
+            # Cap too large input features
             x_test[x_test > 1e10] = 1e10
             x_test[x_test < -1e10] = 1e10
             y_test_unrot = list_data_test[2]
@@ -423,9 +438,10 @@ if plotlines:
             del list_data_test
             # Rotate field
             y_test = expandSymmetricTensor(y_test_unrot).reshape((-1, 3, 3))
-            y_test = rotateData(y_test, anglez=fieldrot)
+            # y_test = rotateData(y_test, anglez=fieldrot)
             y_test = contractSymmetricTensor(y_test.reshape((-1, 9)))
-            # y_test_all.append(y_test)
+            # Append all lines together
+            y_test_all.append(y_test)
             y_all.append(y_test)
 
 
@@ -437,12 +453,19 @@ if plotlines:
             y_pred_test_unrot = regressor.predict(x_test, tb=tb_test)
             # Rotate field
             y_pred_test = expandSymmetricTensor(y_pred_test_unrot).reshape((-1, 3, 3))
-            y_pred_test = rotateData(y_pred_test, anglez=fieldrot)
+            # No rotation yet
+            # y_pred_test = rotateData(y_pred_test, anglez=fieldrot)
             y_pred_test = contractSymmetricTensor(y_pred_test.reshape((-1, 9)))
             t1 = t.time()
             print('\nFinished bij prediction in {:.4f} s'.format(t1 - t0))
-            # y_pred_all.append(y_pred_test)
+            # Append all lines together
+            y_pred_all.append(y_pred_test)
             y_all.append(y_pred_test)
+
+
+            # TODO: hevrhavhavfkbajfbaljbfljabsfjlbfasjfblja
+
+
 
             """
             Posprocess Machine Learning Predictions
@@ -487,6 +510,7 @@ if plotlines:
             # Go through each bij component
             sortidx = np.argsort(distance_test)
             for i in range(len(bijcomp)):
+                # TODO: deprecated
                 if orient == 'H':
                     list_x = (distance_test.take(sortidx),)*2
                     list_y = (y_test[:, i].take(sortidx), y_pred_test[:, i].take(sortidx))
