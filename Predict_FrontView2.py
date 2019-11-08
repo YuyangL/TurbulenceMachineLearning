@@ -251,7 +251,7 @@ for i, slicename in enumerate(slicenames):
     Predict
     """
     t0 = t.time()
-    score_test = regressor.score(x_test, y_test, tb=tb_test)
+    # score_test = regressor.score(x_test, y_test, tb=tb_test)
     # y_pred_test_unrot = regressor.predict(x_test, tb=tb_test)
     y_pred_test = regressor.predict(x_test, tb=tb_test, bij_novelty=bij_novelty)
     # Remove NaN predictions

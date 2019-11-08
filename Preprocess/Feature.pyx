@@ -174,7 +174,7 @@ cpdef tuple getSupplementaryInvariantFeatures(np.ndarray k, np.ndarray d, np.nda
     # Feature 3: Ratio of turbulent time-scale to mean strain time-scale
     features[:, 2] = k/epsilon if sij is None else k/epsilon/(1/sijnorm)
     if r is not None:
-        # Feature 4: Radial distance to turbine center based Re number
+        # Feature 4: Horizontal radial distance to turbine center based Re number
         features[:, 3] = np.sqrt(k)*r/nu
 
     # Labels depending on whether normalization is done and whether radial to distance turbine center is provided

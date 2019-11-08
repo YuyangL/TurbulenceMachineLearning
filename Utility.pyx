@@ -10,6 +10,7 @@ from scipy import ndimage
 from Preprocess.Tensor import contractSymmetricTensor
 import functools, time
 import warnings
+from matplotlib import path
 
 cpdef tuple interpolateGridData(np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray val, np.ndarray z=None,
                                 tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
@@ -477,7 +478,40 @@ cpdef np.ndarray gaussianFilter(np.ndarray array, double sigma=2.):
     arr_filtered = vv/ww
 
     return arr_filtered
-    
+
+def confineFieldDomain3D(nparr[flt, ndim=2] cc, nparr vals,
+                               double box_l, double box_w, double box_h, tuple box_orig=(0., 0., 0.), double rot_z=0.):
+    """
+    Confine a (z-axis rotated) 3D domain given cell centers cc and values val.
+    The confined box is defined by box length box_l, width box_w, height h, origin box_origin, and rotation angle rot_z in rad.
+
+    :param cc: 3D cell center coordinates
+    :type cc: 2D array of shape (n_cells, 3)
+    :param vals: Corresponding values of interest
+    :type vals: 1/2D array of shape (n_cells,) or (n_cells, n_features)
+    :param box_l: Confine box length
+    :type box_l: float
+    :param box_w: Confine box width
+    :type box_w: float
+    :param box_h: Confine box height
+    :type box_h: float
+    :param box_orig: Confine box origin
+    :type box_orig: tuple, optional (default=(0., 0., 0.))
+    :param rot_z: Rotation angle around z-axis in rad
+    :type rot_z: float, optional (default=0.)
+
+    :return: Confined cell centers, confined values, and 1D bool mask
+    :rtype: (2D array of shape (n_cells, 3), 1/2D array of shape (n_cells,) or (n_cells, n_features), 1D array of shape (n_cells,))
+    """
+    print('\nConfining 3D field domain...')
+    # Confined mask in uint8 type, then change it to bool type
+    mask = np.array(_confineFieldDomain3D(cc, box_l, box_w, box_h, box_orig, rot_z), dtype=np.bool)
+    # Pick up cell centers and values in confined region
+    cc_confined = cc[mask]
+    vals_confined = vals[mask]
+
+    return cc_confined, vals_confined, mask
+
 
 def timer(func):
     """Print the runtime of the decorated function"""
@@ -505,6 +539,31 @@ def deprecated(func):
     newFunc.__doc__ = func.__doc__
     newFunc.__dict__.update(func.__dict__)
     return newFunc
+
+
+cdef uint8[:] _confineFieldDomain3D(nparr[flt, ndim=2] cc,
+                               double box_l, double box_w, double box_h, tuple box_orig=(0., 0., 0.), double rot_z=0.):
+    """
+    Cython doesn't support bool type array. Thus uint8 type memoryview workaround.
+    """
+    cdef uint8[:] mask_z, mask_xy, mask
+    cdef nparr[flt, ndim=2] cc_confined
+    cdef nparr vals_confined
+
+    # Create the bounding box
+    box = path.Path(((box_orig[0], box_orig[1]),
+                     (box_l*cos(rot_z) + box_orig[0], box_l*sin(rot_z) + box_orig[1]),
+                     (box_l*cos(rot_z) + box_orig[0] - box_w*sin(rot_z), box_l*sin(rot_z) + box_orig[1] + box_w*cos(rot_z)),
+                     (box_orig[0] - box_w*sin(rot_z), box_orig[1] + box_w*cos(rot_z)),
+                     (box_orig[0], box_orig[1])))
+    # 1D bool mask where z is confined
+    mask_z = np.frombuffer(np.where((cc[:, 2] >= box_orig[2]) & (cc[:, 2] <= box_orig[2] + box_h), True, False), dtype=np.uint8)
+    # 1D bool mask array of confined x, y
+    mask_xy = np.frombuffer(box.contains_points((cc[:, :2])), dtype=np.uint8)
+    # Combine mask_z and mask_xy together
+    mask = np.frombuffer(np.logical_and(mask_xy, mask_z), dtype=np.uint8)
+
+    return mask
 
 
 

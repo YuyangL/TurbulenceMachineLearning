@@ -38,7 +38,7 @@ from numba import njit, prange
 User Inputs, Anything Can Be Changed Here
 """
 # Reynolds number of the flow case
-re = 5600
+re = 10595
 # Name of the flow case in both RANS and LES
 rans_case_name = 'RANS_Re' + str(re)  # str
 les_case_name = 'LES_Breuer/Re_' + str(re)  # str
@@ -58,7 +58,7 @@ nu = 9.438414346389807e-05  # float
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
-process_raw_field, process_invariants = True, True  # bool
+process_raw_field, process_invariants = False, False  # bool
 # The following is only relevant if processInvariants is True
 if process_invariants:
     # Absolute cap value for Sij and Rij; tensor basis Tij
@@ -83,9 +83,9 @@ rf_selector_n_estimators = 0
 rf_selector_threshold = '0.25*median'  # 'median', 'mean', None
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
-train_model, save_estimator = False, False  # bool
+train_model, save_estimator = True, False  # bool
 # Name of the ML estimator
-estimator_name = 'tbdt'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
+estimator_name = 'tbgb'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
@@ -95,7 +95,7 @@ min_samples_leaf = 4  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
 min_samples_split = 16 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = None#(3, 5)  # int
+max_depth = 3#(3, 5)  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
@@ -128,10 +128,10 @@ elif estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
     order = [0, 3, 1, 5, 4, 2]  # [4, 2, 5, 3, 1, 0]
 elif estimator_name in ('TBGB', 'tbgb'):
-    n_estimators = 16
+    n_estimators = 3 #16
     learning_rate = 0.1
     subsample = 0.8
-    n_iter_no_change = 3
+    n_iter_no_change = None
     tol = 1e-8
     bij_novelty = None  # 'reset', None
     loss = 'huber'
