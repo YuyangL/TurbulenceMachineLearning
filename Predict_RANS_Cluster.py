@@ -9,17 +9,14 @@ import os
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both ML and test
-ml_casename = 'ALM_N_H_OneTurb'  # str
-test_casename = 'ALM_N_H_SeqTurb'  # str
+ml_casename = 'N_H_OneTurb_LowZ_Rwall2'  # str
+test_casename = 'N_H_OneTurb_LowZ_Rwall2'  # str
 # Absolute parent directory of ML and test case
 casedir = '/home/yluan/TurbML/'  # str
-seed = 123  # int
 # The case folder name storing the estimator
 estimator_folder = "Result"  # str
 estimator_name = 'TBDT'  # 'TBDT', 'TBRF', 'TBAB', 'TBGB'
 confinezone = '2'  # '', '1', '2'
-# Feature set string
-fs = 'grad(TKE)_grad(p)+'  # 'grad(TKE)_grad(p)+', 'grad(TKE)_grad(p)', 'grad(TKE)', 'grad(p)'
 # Iteration to make predictions realizable
 realize_iter = 0  # int
 # What to do with prediction too far from realizable range
@@ -34,42 +31,8 @@ bijbnd_multiplier = 2.
 
 estimator_fullpath = casedir + '/' + ml_casename + '/' + estimator_folder + '/'
 estimator_name += '_Confined' + str(confinezone)
-# Average fields of interest for reading and processing
-if 'grad(TKE)_grad(p)' in fs:
-    fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg',
-              'GAvg', 'divDevR', 'dDevRab_db')
-elif fs == 'grad(TKE)':
-    fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean',
-              'GAvg', 'divDevR', 'dDevRab_db')
-elif fs == 'grad(p)':
-    fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'UAvg',
-              'GAvg', 'divDevR', 'dDevRab_db')
-else:
-    fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'nuSGSmean', 'uuPrime2',
-              'grad_UAvg',
-              'GAvg', 'divDevR', 'dDevRab_db')
 
-
-if 'ParTurb' in test_casename:
-    if test_casename == 'ALM_N_H_ParTurb2':
-        time = '25000.0838025'
-    elif test_casename == 'ALM_N_L_ParTurb':
-        time = '23000.07'
-    elif test_casename == 'ALM_N_L_ParTurb_Yaw':
-        time = '23000.065'
-    elif test_casename == 'ALM_N_H_ParTurb_HiSpeed':
-        time = '23013.5419119'
-
-elif test_casename == 'ALM_N_H_OneTurb':
-    time = '24995.0438025'
-elif 'SeqTurb' in test_casename:
-    if test_casename == 'ALM_N_H_SeqTurb':
-        time = '25000.1288025'
-    elif test_casename == 'ALM_N_L_SeqTurb':
-        time = '23000.135'
+time = ''
 
 bij_novelty_ext = '' if bij_novelty is None else bij_novelty
 result_dir = '/home/yluan/scratch/TurbML/'+ test_casename + '/' + estimator_name + bij_novelty_ext + '/' + time + '/'

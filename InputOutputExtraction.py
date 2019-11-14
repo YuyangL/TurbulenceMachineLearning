@@ -16,8 +16,6 @@ try:
 except ModuleNotFoundError:
     import pickle
 
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
 from warnings import warn
 import time as t
 
@@ -46,7 +44,7 @@ proc_set = False  # bool
 Case Specific Inputs
 """
 # Name of the flow case
-casename = 'ALM_N_L_SeqTurb'  # str
+casename = 'ALM_N_H_ParTurb_HiSpeed'  # str
 # Absolute directory of this flow case
 casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
@@ -111,8 +109,8 @@ Process User Inputs, No Need to Change
 # Average fields of interest for reading and processing
 if 'grad(TKE)_grad(p)' in fs:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg',
-              'GAvg', 'divDevR', 'dDevRab_db')
+                  'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg',
+                  'GAvg', 'divDevR', 'dDevRab_db')
 elif fs == 'grad(TKE)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
               'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean',
@@ -202,7 +200,9 @@ if confine and confinezone is not None:
             boxl, boxw, boxh = 1764, 378, 216
             confinedfield_namesub += '2'
 
-if not confine: confinedfield_namesub = ''
+else:
+    confinedfield_namesub = ''
+
 # Subscript for the slice names
 slicename_sub = 'Slice'
 # Ensemble file name, containing fields related to ML

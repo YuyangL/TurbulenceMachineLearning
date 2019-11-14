@@ -71,7 +71,7 @@ rf_kwargs = dict(gs_min_samples_split=(0.0005, 0.001, 0.002) if not unittest els
 ab_kwargs = dict(gs_max_depth=(5, 10) if not unittest else 5,
                  gs_learning_rate=(0.1, 0.2, 0.4) if not unittest else 0.1,
                  min_samples_split=0.002,
-                 n_estimators=64 if not unittest else 16,
+                 n_estimators=16 if not unittest else 16,
                  loss='square',
                  # [DEPRECATED]
                  bij_novelty=None)
@@ -79,8 +79,8 @@ ab_kwargs = dict(gs_max_depth=(5, 10) if not unittest else 5,
 gb_kwargs = dict(gs_max_depth=(5, 10) if not unittest else 5,
                  gs_learning_rate=(0.1, 0.2, 0.4) if not unittest else 0.1,
                  min_samples_split=0.002,
-                 n_estimators=64 if not unittest else 16,
-                 loss='ls',
+                 n_estimators=16 if not unittest else 16,
+                 loss='huber',
                  subsample=0.8,
                  # FIXME: n_iter_no_change causes segmentation error
                  n_iter_no_change=None,
@@ -148,6 +148,7 @@ print('\nFinished loading GS and train data in {:.4f} s'.format(t1 - t0))
 Machine Learning
 """
 for estimator in estimators:
+    print("\n\nCurrent estimator is {}\n\n".format(estimator))
     # regressor_gs is the GSCV object while regressor is the actual estimator
     if estimator == 'TBDT':
         tree_kwargs_tot = {**tree_kwargs, **general_kwargs}

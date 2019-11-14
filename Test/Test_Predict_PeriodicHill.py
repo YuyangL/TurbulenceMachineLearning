@@ -507,7 +507,7 @@ for i in range(3):
 Plot TKE production G Along 3 Vertical Lines in 1 Plot
 """
 g_range_multiplier = 2.
-g_range = (gmax + abs(gmin))*g_range_multiplier
+g_range = (gmax - gmin)*g_range_multiplier
 # Max available x span for a g line plot is 4 [m], thus rescale G to an x range
 g_multiplier = 4./g_range
 for i in range(3):
