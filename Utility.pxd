@@ -22,7 +22,7 @@ cpdef tuple fieldSpatialSmoothing(np.ndarray[np.float_t, ndim=2] val,
                                        np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray z=*,
                                        tuple val_bnd=*, bint is_bij=*, double bij_bnd_multiplier=*,
                                        tuple xlim=*, tuple ylim=*, tuple zlim=*,
-                                       double mesh_target=*)
+                                       double mesh_target=*, str interp_method=*)
 
 cpdef np.ndarray gaussianFilter(np.ndarray array, double sigma=*)
 

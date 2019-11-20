@@ -359,12 +359,13 @@ cpdef tuple fieldSpatialSmoothing(np.ndarray[np.float_t, ndim=2] val,
                                         np.ndarray[np.float_t] x, np.ndarray[np.float_t] y, np.ndarray z=None,
                                         tuple val_bnd=(-np.inf, np.inf), bint is_bij=False, double bij_bnd_multiplier=2.,
                                         tuple xlim=(None, None), tuple ylim=(None, None), tuple zlim=(None, None),
-                                        double mesh_target=1e4):
+                                        double mesh_target=1e4,
+                                  str interp_method='nearest'):
     """
     Spatially smooth a field of shape (n_points, n_outputs). Therefore, if the field is a 2/3D mesh grid, it has to be flattened beforehand.
     The workflow is:
         1. Remove any component outside bound and set to NaN
-        2. Interpolate to 2/3D slice/volumetric mesh grid with nearest method
+        2. Interpolate to 2/3D slice/volumetric mesh grid with an interpolation method
         3. Use 2/3D Gaussian filter to smooth the mesh grid while ignoring NaN, for every component.
     The output will be a spatially smoothed field mesh grid of mesh_target number of points.
     The targeted mesh grid has to be at least 2D with x and y coordinates provided.
@@ -402,6 +403,8 @@ cpdef tuple fieldSpatialSmoothing(np.ndarray[np.float_t, ndim=2] val,
     :param mesh_target: Number of points for the target mesh. 
     Then, number of points in each axis is determined automatically depending on length in each axis. 
     :type mesh_target: float, optional (default=1e4)
+    :param interp_method: Interpolation method.
+    :type interp_method: 'nearest', 'linear', 'cubic', optional (default='nearest')
     
     :return: Mesh grid coordinates of x, y, z, and spatially smoothed field mesh grid.
     :rtype: (ndarray[3D mesh grid], ndarray[3D mesh grid], ndarray[3D mesh grid], ndarray[3D mesh grid x n_outputs])
@@ -429,7 +432,7 @@ cpdef tuple fieldSpatialSmoothing(np.ndarray[np.float_t, ndim=2] val,
 
     # Step 2
     xmesh, ymesh, zmesh, val_mesh = interpolateGridData(x, y, val, z=z, xlim=xlim, ylim=ylim, zlim=zlim,
-                                       mesh_target=mesh_target, interp="nearest", fill_val=np.nan)
+                                       mesh_target=mesh_target, interp=interp_method, fill_val=np.nan)
     # Step 3
     for i in range(n_outputs):
         val_mesh[..., i] = gaussianFilter(val_mesh[..., i])

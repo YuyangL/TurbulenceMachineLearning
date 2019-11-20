@@ -26,7 +26,7 @@ User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both RANS and LES
 # Only Re = 700 is DNS, the rest is LES
-re = 5600  # 700, 5600, 10595
+re = 700  # 700, 5600, 10595
 rans_case_name = 'RANS_Re' + str(re)  # str
 les_case_name = 'LES_Breuer/Re_' + str(re)  # str
 # LES data name to read
@@ -39,8 +39,11 @@ seed = 123  # int
 # Interpolation method when interpolating mesh grids
 interp_method = "nearest"  # "nearest", "linear", "cubic"
 # The case folder name storing the estimator
-# estimator_folder = 'TBAB/16_{50_0.002_2_0_10}_4cv_ls_0.1rate'  #"TBRF_16t_auto_p{47_16_4_0_0_50}_s123_boots_0iter"
-estimator_folder = 'TBDT/Kaandorp_{50_0.002_0.001_0}'
+estimator_folder = 'TBRF/8_{50_0.002_2_0}'  #"TBRF_16t_auto_p{47_16_4_0_0_50}_s123_boots_0iter"
+estimator_folder = 'TBAB/16_{50_0.002_2_0_10}_4cv_ls_0.1rate'  #"TBRF_16t_auto_p{47_16_4_0_0_50}_s123_boots_0iter"
+estimator_folder = 'TBDT/{50_0.002_2_0}_4cv'  #"TBRF_16t_auto_p{47_16_4_0_0_50}_s123_boots_0iter"
+estimator_folder = 'TBGB/16_{50_0.002_2_0_10}_huber_1subsample_0.1rate'  #"TBRF_16t_auto_p{47_16_4_0_0_50}_s123_boots_0iter"
+# estimator_folder = 'TBDT/Kaandorp_{50_0.002_0.001_0}'
 estimator_dir = "RANS_Re10595"
 # Feature set number
 fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
@@ -347,7 +350,8 @@ barymap_test = Plot2D_Image(val=rgb_bary_test_mesh[:, :], name=figname, xlabel=x
                             figdir=case.result_paths[time],
                             figwidth='half',
                             rotate_img=True,
-                            extent=extent_test)
+                            extent=extent_test,
+                            figheight_multiplier=.7)
 geometry = np.genfromtxt(casedir + '/' + rans_case_name + '/' + "geometry.csv", delimiter=",")[:, :2]
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=barymap_test.gray)
@@ -369,7 +373,8 @@ barymap_predtest = Plot2D_Image(val=rgb_bary_pred_test_mesh, name=figname, xlabe
                                 figdir=case.result_paths[time],
                                 figwidth='half',
                                 rotate_img=True,
-                                extent=extent_test)
+                                extent=extent_test,
+                                figheight_multiplier=.7)
 barymap_predtest.initializeFigure()
 barymap_predtest.plotFigure()
 barymap_predtest.axes.add_patch(next(patches))
@@ -534,7 +539,8 @@ gplot = Plot2D_Image(val=rgb_bary_test_mesh, name=figname, xlabel=xlabel,
                             figwidth='half',
                             rotate_img=True,
                             extent=extent_test, alpha=0.25,
-                     xlim=(0, 9))
+                     xlim=(0, 9),
+                     figheight_multiplier=.7)
 gplot.initializeFigure()
 gplot.plotFigure()
 # Only Re = 700 is DNS, the rest is LES
@@ -588,7 +594,8 @@ for i0 in range(2):
                          figwidth='half',
                          rotate_img=True,
                          extent=extent_test, alpha=0.25,
-                         xlim=(0, 9))
+                         xlim=(0, 9),
+                             figheight_multiplier=.7)
     divr_plot.initializeFigure()
     divr_plot.plotFigure()
     # Only Re = 700 is DNS, the rest is LES

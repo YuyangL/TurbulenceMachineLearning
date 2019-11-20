@@ -825,7 +825,10 @@ def setupGradientBoostGridSearchCV(gs_max_features=(1.,), gs_max_depth=(5,), gs_
                                    alpha=alpha,
                                    # [DEPRECATEDD]
                                    alpha_g_fit=alpha_g_fit,
-                                   bij_novelty=bij_novelty)
+                                   bij_novelty=bij_novelty, max_depth=gs_max_depth[0],
+                                   max_features=gs_max_features[0],
+                                   alpha_g_split=gs_alpha_g_split[0],
+                                   learning_rate=gs_learning_rate[0])
 
     # Hyper-parameters for GSCV
     tuneparams = dict(max_features=gs_max_features,

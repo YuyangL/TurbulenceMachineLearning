@@ -24,7 +24,7 @@ Programme Settings
 """
 # Field settings
 # Global field setting, will skip the following field settings if False
-proc_field = True  # bool
+proc_field = False  # bool
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
@@ -36,7 +36,7 @@ proc_field_feature = True  # bool
 proc_field_traintest_split = True  # bool
 
 # Whether process slice and sets data, purely for prediction
-proc_slice = False  # bool
+proc_slice = True  # bool
 proc_set = False  # bool
 
 
@@ -109,16 +109,13 @@ Process User Inputs, No Need to Change
 # Average fields of interest for reading and processing
 if 'grad(TKE)_grad(p)' in fs:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-                  'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg',
-                  'GAvg', 'divDevR', 'dDevRab_db')
+                  'grad_UAvg', 'grad_p_rghAvg', 'grad_kResolved', 'grad_kSGSmean', 'UAvg')
 elif fs == 'grad(TKE)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean',
-              'GAvg', 'divDevR', 'dDevRab_db')
+              'grad_UAvg', 'grad_kResolved', 'grad_kSGSmean')
 elif fs == 'grad(p)':
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
-              'grad_UAvg', 'grad_p_rghAvg', 'UAvg',
-              'GAvg', 'divDevR', 'dDevRab_db')
+              'grad_UAvg', 'grad_p_rghAvg', 'UAvg')
 else:
     fields = ('kResolved', 'kSGSmean', 'epsilonSGSmean', 'uuPrime2',
               'grad_UAvg')
@@ -127,10 +124,7 @@ else:
 mlfield_ensemble_name = 'ML_Fields_' + casename
 # Case related default settings
 if 'ParTurb' in casename:
-    slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'oneDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines',
-                                           'threeDdownstreamTurbines', 'fiveDdownstreamTurbines', 'sevenDdownstreamTurbines')
+    slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
     # TODO: update
     set_types = ('oneDdownstreamSouthernTurbine_V',
                  'oneDdownstreamNorthernTurbine_V',
@@ -141,8 +135,7 @@ if 'ParTurb' in casename:
     # Southern turbine; northern turbine center coordinates, 3D apart from each other
     turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 elif casename == 'ALM_N_H_OneTurb':
-    slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-     'oneDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine', 'threeDdownstreamTurbine', 'fiveDdownstreamTurbine', 'sevenDdownstreamTurbine')
+    slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
     set_types = ('oneDdownstreamTurbine_V',
                  'threeDdownstreamTurbine_V',
                  'fiveDdownstreamTurbine_V',
@@ -150,11 +143,7 @@ elif casename == 'ALM_N_H_OneTurb':
     # 1 turbine center coordinate at the upwind turbine location
     turblocs = [1118.083, 1279.5, 90.]
 elif 'SeqTurb' in casename:
-    slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
-                                           'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
-                                           'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
-                                           'sixDdownstreamTurbineTwo')
+    slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
     # TODO: update
     set_types = ('oneDdownstreamTurbine_V',
                  'threeDdownstreamTurbine_V',
@@ -566,9 +555,9 @@ if proc_slice:
             # Visualization related slice data
             case.savePickleData(time, k, 'TKE_' + slice_type)
             case.savePickleData(time, grad_u, 'grad(U)_' + slice_type)
-            case.savePickleData(time, g_tke, 'G_' + slice_type)
-            case.savePickleData(time, div_devr, 'div(dev(R))_' + slice_type)
-            case.savePickleData(time, ddevr_dj, 'ddev(Rab)_db_' + slice_type)
+            # case.savePickleData(time, g_tke, 'G_' + slice_type)
+            # case.savePickleData(time, div_devr, 'div(dev(R))_' + slice_type)
+            # case.savePickleData(time, ddevr_dj, 'ddev(Rab)_db_' + slice_type)
             case.savePickleData(time, list_slicecoor[slice_type], filenames='CC_' + slice_type)
 
         # Calculate features

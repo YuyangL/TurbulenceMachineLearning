@@ -7,7 +7,7 @@ from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expa
 from Preprocess.Feature import getInvariantFeatureSet, getSupplementaryInvariantFeatures
 from Utility import interpolateGridData
 from Preprocess.FeatureExtraction import splitTrainTestDataList
-from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearch,  performEstimatorGridSearch, setupDecisionTreeGridSearchCV3
+from Preprocess.GridSearchSetup import setupDecisionTreeGridSearchCV, setupRandomForestGridSearch, setupAdaBoostGridSearchCV,  performEstimatorGridSearch
 import time as t
 # For Python 2.7, use cpickle
 try:
@@ -40,7 +40,7 @@ les_case_name = 'LES_Breuer/Re_10595'  # str
 # LES data name to read
 les_data_name = 'Hill_Re_10595_Breuer.csv'  # str
 # Absolute directory of this flow case
-caseDir = '/media/yluan/DNS/PeriodicHill'  # str
+casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
 
@@ -51,7 +51,7 @@ Machine Learning Settings
 # Feature set number
 fs = 'grad(TKE)_grad(p)+'  # '1', '12', '123'
 # Name of the ML estimator
-estimator_name = 'tbab'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
+estimator_name = 'tbgb'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
 presort = True  # bool
 # Maximum number of features to consider for best split
@@ -84,7 +84,7 @@ if estimator_name in ("TBRF", "tbrf"):
     tbkey = 'rf__tb'
     max_depth = None
 elif estimator_name in ("TBAB", "tbab"):
-    n_estimators = 2  # int
+    n_estimators = 8  # int
     learning_rate = (0.1, 0.2, 0.4)  # int
     # Override global setting
     min_samples_split = 0.002
@@ -93,11 +93,14 @@ elif estimator_name in ("TBAB", "tbab"):
     bij_novelty = None  # 'reset', None
     tbkey = 'ab__tb'
 elif estimator_name in ('TBGB', 'tbgb'):
-    n_estimators = 10
-    learning_rate = 1
-    subsample = 1
+    n_estimators = 8
+    learning_rate = (0.1, 0.2, 0.4)
+    subsample = 0.8
+    # Override global setting
+    min_samples_split = 0.002
+    # FIXME: this functionality doesn't work
     n_iter_no_change = None
-    tol = 1e-4
+    tol = 1e-8
     bij_novelty = None  # 'reset', None
     loss = 'ls'
     tbkey = 'gb__tb'
@@ -124,7 +127,7 @@ fields = ('U', 'k', 'p', 'omega',
 # Ensemble name of fields useful for Machine Learning
 ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 # Initialize case object
-case = FieldData(caseName=rans_case_name, caseDir=caseDir, times=time, fields=fields, save=False)
+case = FieldData(casename=rans_case_name, casedir=casedir, times=time, fields=fields, save=False)
 if estimator_name == "tbdt":
     estimator_name = "TBDT"
     # Dictionary of hyper-parameters
@@ -144,8 +147,12 @@ elif estimator_name == 'tbab':
                      learning_rate=learning_rate)
 elif estimator_name == 'tbgb':
     estimator_name = 'TBGB'
+    paramdict = dict(max_depth=(5, 10),
+                     max_features=max_features,
+                     alpha_g_split=alpha_g_split,
+                     learning_rate=learning_rate)
 
-figdir = case.resultPaths[time] + '/ValidationCurve/'
+figdir = case.result_paths[time] + '/ValidationCurve/'
 os.makedirs(figdir, exist_ok=True)
 
 
@@ -193,7 +200,7 @@ elif estimator_name == 'TBRF':
                                       max_features=1.,
                                       # [DEPRECATED]
                                       alpha_g_fit=alpha_g_fit)
-elif estimator_name == 'TBAB':
+elif estimator_name == 'TBAB' or estimator_name == 'TBGB':
     base = DecisionTreeRegressor(presort=presort, tb_verbose=tb_verbose,
                                  min_samples_leaf=min_samples_leaf,
                                  min_samples_split=0.002,
@@ -205,13 +212,32 @@ elif estimator_name == 'TBAB':
                                  alpha_g_split=0.,
                                  # [DEPRECATED]
                                  alpha_g_fit=alpha_g_fit)
-    regressor = AdaBoostRegressor(base_estimator=base,
-                                  n_estimators=n_estimators,
-                                  loss=loss,
-                                  random_state=seed,
-                                  bij_novelty=bij_novelty,
-                                  learning_rate=0.1)
-# TODO: TBGB
+    if estimator_name == 'TBAB':
+        regressor = AdaBoostRegressor(base_estimator=base,
+                                      n_estimators=n_estimators,
+                                      loss=loss,
+                                      random_state=seed,
+                                      bij_novelty=bij_novelty,
+                                      learning_rate=0.1)
+    else:
+        regressor = GradientBoostingRegressor(subsample=subsample,
+                                      n_estimators=n_estimators,
+                                      loss=loss,
+                                      random_state=seed,
+                                      bij_novelty=bij_novelty,
+                                      learning_rate=0.1,
+                                              criterion='mse',
+                                              min_samples_leaf=0.001,
+                                              min_samples_split=0.002,
+                                              max_depth=5,
+                                              max_features=1.,
+                                              init='zero',
+                                              verbose=2,
+                                              split_finder=split_finder, split_verbose=split_verbose,
+                                              g_cap=g_cap,
+                                              realize_iter=realize_iter,
+                                              alpha_g_split=0.,
+                                              presort=presort)
 
 """
 Validation Curve

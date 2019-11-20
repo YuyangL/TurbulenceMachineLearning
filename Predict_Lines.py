@@ -1,32 +1,21 @@
 import sys
 # See https://github.com/YuyangL/SOWFA-PostProcess
 sys.path.append('/home/yluan/Documents/SOWFA PostProcessing/SOWFA-Postprocess')
-from joblib import load
 from SetData import SetProperties
-from Preprocess.Tensor import processReynoldsStress, getBarycentricMapData, expandSymmetricTensor, contractSymmetricTensor
-from Utility import interpolateGridData, rotateData
 import time as t
 from PlottingTool import BaseFigure, Plot2D, Plot2D_Image, PlotContourSlices3D, PlotSurfaceSlices3D, PlotImageSlices3D
 import os
 import numpy as np
-from matplotlib.path import Path
-from matplotlib.patches import PathPatch, Circle
-from copy import copy
-import matplotlib.pyplot as plt
-from math import sqrt
 
 
 """
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both ML and test
-casename = 'ALM_N_L_ParTurb'  # str
+casename = 'ALM_N_L_ParTurb_Yaw'  # str
 # Absolute parent directory of ML and test case
 casedir = '/media/yluan'  # str
-set_types = 'auto'  # str
 time = 'latestTime'  # str/float/int or 'latestTime'
-# Interpolation method when interpolating mesh grids
-interp_method = "nearest"  # "nearest", "linear", "cubic"
 # Orientation of the lines, either vertical or horizontal
 line_orient = '_H_'  # '_H_', '_V_'
 # Line offsets w.r.t. D
@@ -37,18 +26,11 @@ remove_tbrfexcl = True
 """
 Plot Settings
 """
-plotslices, plotlines = False, True
 figfolder = 'Result'
-xlabel = 'Distance [m]'
-# Field rotation for vertical slices, rad or deg
-fieldrot = 30.  # float
-# When plotting, the mesh has to be uniform by interpolation, specify target size
-uniform_mesh_size = 1e6  # int
+xlabel = 'Horizontal distance [m]'
 # Subsample for barymap coordinates, jump every "subsample"
 subsample = 50  # int
 figheight_multiplier = 1.  # float
-# Limit for bij plot
-bijlims = (-1/2., 2/3.)  # (float, float)
 # Save figures and show figures
 save_fig, show = True, False  # bool; bool
 # If save figure, figure extension and DPI
@@ -79,9 +61,6 @@ else:
                  'oneDdownstreamTurbine',
                  'threeDdownstreamTurbine')
 
-
-uniform_mesh_size = int(uniform_mesh_size)
-if fieldrot > 2*np.pi: fieldrot /= 180./np.pi
 # Set object initialization
 case = SetProperties(casename=casename, casedir=casedir, time=time)
 # Read sets
@@ -158,8 +137,6 @@ for type in set_types:
     uz_min = min(min(uz[type]), uz_min)
     uz_max = max(max(uz[type]), uz_max)
 
-# plt.plot(divdev_r['oneDdownstreamTurbine'][:, 0])
-# plt.show()
 
 """
 Plot G Lines for Several Locations
@@ -177,9 +154,9 @@ def prepareLineValues(set_types, xlocs, val_dict, val_lim, lim_multiplier=4., li
         #     val_dict[type] < val_lim[0]*lim_multiplier] = val_lim[0]*lim_multiplier
         # val_dict[type][
         #     val_dict[type] > val_lim[1]*lim_multiplier] = val_lim[1]*lim_multiplier
-        val_dict[type] *= scale
+        val_dict[type] = val_dict[type]*scale
         # Shift them to their respective x location
-        val_dict[type] += xlocs[i]
+        val_dict[type] = val_dict[type] + xlocs[i]
 
     return val_dict
 
@@ -191,6 +168,13 @@ def plotOneTurbAuxiliary(plot_obj, xlim, ylim):
     plot_obj.axes.fill_between(xlim, ylim[1] - 252, ylim[1], facecolor=plot_obj.gray, alpha=0.25, zorder=100)
     plot_obj.axes.fill_between(xlim, ylim[0], ylim[0] + 252, facecolor=plot_obj.gray, alpha=0.25, zorder=100)
     plot_obj.axes.plot(np.zeros(2), [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+
+def plotParTurbYawAuxiliary(plot_obj):
+    """
+    Plot turbine locations for ParTurb with 10 deg yaw in southern turbine and 20 deg yaw in northern turbine.
+    """
+    plot_obj.axes.plot((63/200.*np.sin(1/18.*np.pi), -63/200.*np.sin(1/18.*np.pi)), [126, 252], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    plot_obj.axes.plot((63/200.*np.sin(1/9.*np.pi), -63/200.*np.sin(1/9.*np.pi)), [630, 756], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
 
 def plotParTurbAuxiliary(plot_obj):
     """
@@ -213,7 +197,7 @@ figwidth = 'full' if 'SeqTurb' in casename else 'half'
 labels = ('LES', 'TBDT', 'TBRF')
 labels2 = ('LES', 'TBAB', 'TBGB')
 ls = ('-', '-.', '--')
-xlim = (-2, 4) if figwidth == 'half' else (-2, 11)
+xlim = (-2, 5) if figwidth == 'half' else (-2, 12)
 
 g = prepareLineValues(set_types, offset_d, g, (gmin, gmax))
 figname, figname2 = 'G1', 'G2'
@@ -243,7 +227,11 @@ for i in range(len(list_x)):
 if 'OneTurb' in casename:
     plotOneTurbAuxiliary(gplot, xlim, (min(list_y[0]), max(list_y[0])))
 elif 'ParTurb' in casename:
-    plotParTurbAuxiliary(gplot)
+    if 'Yaw' in casename:
+        plotParTurbYawAuxiliary(gplot)
+    else:
+        plotParTurbAuxiliary(gplot)
+
 else:
     plotSeqTurbAuxiliary(gplot, xlim, (min(list_y[0]), max(list_y[0])))
 
@@ -269,7 +257,11 @@ for i in range(len(list_x)):
 if 'OneTurb' in casename:
     plotOneTurbAuxiliary(gplot2, xlim, (min(list_y[0]), max(list_y[0])))
 elif 'ParTurb' in casename:
-    plotParTurbAuxiliary(gplot2)
+    if 'Yaw' in casename:
+        plotParTurbYawAuxiliary(gplot2)
+    else:
+        plotParTurbAuxiliary(gplot2)
+
 else:
     plotSeqTurbAuxiliary(gplot2, xlim, (min(list_y[0]), max(list_y[0])))
 
@@ -281,6 +273,11 @@ gplot2.finalizeFigure(showleg=False)
 Plot divDevR Lines for Several Locations
 """
 # Prepare values to scale with x in the plot
+# for i, type in enumerate(set_types):
+#     divdev_r_xy[type][divdev_r_xy[type] > .1*divdev_r_xy_max] = .1*divdev_r_xy_max
+#
+# divdev_r_xy_max *= .1
+
 divdev_r_xy = prepareLineValues(set_types, offset_d, divdev_r_xy, (divdev_r_xy_min, divdev_r_xy_max),
                                 lim_multiplier=4., linespan=6.)
 divdev_r_z = prepareLineValues(set_types, offset_d, divdev_r_z, (divdev_r_z_min, divdev_r_z_max),
@@ -288,9 +285,6 @@ divdev_r_z = prepareLineValues(set_types, offset_d, divdev_r_z, (divdev_r_z_min,
 
 figname, figname2, figname3, figname4 = 'divDevRxy1', 'divDevRxy2', 'divDevRz1', 'divDevRz2'
 list_y = [case.coor[set_types[i] + line_orient + property_names[0]][::10] for i in range(len(set_types))]
-# if figwidth == 'full':
-#     for i in range(3, 6):
-#         list_y[i] += yoffset
 
 list_x = [divdev_r_xy[set_types[i]][::10] for i in range(len(set_types))]
 list_x2 = [divdev_r_z[set_types[i]][::10] for i in range(len(set_types))]
@@ -312,7 +306,11 @@ for i in range(len(list_x)):
 if 'OneTurb' in casename:
     plotOneTurbAuxiliary(divdevr_xy_plot, xlim, (min(list_y[0]), max(list_y[0])))
 elif 'ParTurb' in casename:
-    plotParTurbAuxiliary(divdevr_xy_plot)
+    if 'Yaw' in casename:
+        plotParTurbYawAuxiliary(divdevr_xy_plot)
+    else:
+        plotParTurbAuxiliary(divdevr_xy_plot)
+
 else:
     plotSeqTurbAuxiliary(divdevr_xy_plot, xlim, (min(list_y[0]), max(list_y[0])))
 
@@ -337,7 +335,11 @@ for i in range(len(list_x)):
 if 'OneTurb' in casename:
     plotOneTurbAuxiliary(divdevr_xy_plot2, xlim, (min(list_y[0]), max(list_y[0])))
 elif 'ParTurb' in casename:
-    plotParTurbAuxiliary(divdevr_xy_plot2)
+    if 'Yaw' in casename:
+        plotParTurbYawAuxiliary(divdevr_xy_plot2)
+    else:
+        plotParTurbAuxiliary(divdevr_xy_plot2)
+
 else:
     plotSeqTurbAuxiliary(divdevr_xy_plot2, xlim, (min(list_y[0]), max(list_y[0])))
 
@@ -362,7 +364,11 @@ for i in range(len(list_x2)):
 if 'OneTurb' in casename:
     plotOneTurbAuxiliary(divdevr_z_plot, xlim, (min(list_y[0]), max(list_y[0])))
 elif 'ParTurb' in casename:
-    plotParTurbAuxiliary(divdevr_z_plot)
+    if 'Yaw' in casename:
+        plotParTurbYawAuxiliary(divdevr_z_plot)
+    else:
+        plotParTurbAuxiliary(divdevr_z_plot)
+
 else:
     plotSeqTurbAuxiliary(divdevr_z_plot, xlim, (min(list_y[0]), max(list_y[0])))
 
@@ -387,7 +393,10 @@ for i in range(len(list_x2)):
 if 'OneTurb' in casename:
     plotOneTurbAuxiliary(divdevr_z_plot2, xlim, (min(list_y[0]), max(list_y[0])))
 elif 'ParTurb' in casename:
-    plotParTurbAuxiliary(divdevr_z_plot2)
+    if 'Yaw' in casename:
+        plotParTurbYawAuxiliary(divdevr_z_plot2)
+    else:
+        plotParTurbAuxiliary(divdevr_z_plot2)
 else:
     plotSeqTurbAuxiliary(divdevr_z_plot2, xlim, (min(list_y[0]), max(list_y[0])))
 

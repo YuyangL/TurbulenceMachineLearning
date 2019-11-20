@@ -23,11 +23,12 @@ User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both RANS and LES
 rans_case_name = 'RANS_Re10595'  # str
-les_case_name = 'LES_Breuer/Re_10595'  # str
+test_case_name = 'RANS_Re5600'  # str
+les_case_name = 'LES_Breuer/Re_5600'  # str
 # LES data name to read
-les_data_name = 'Hill_Re_10595_Breuer.csv'  # str
+les_data_name = 'Hill_Re_5600_Breuer.csv'  # str
 # Absolute directory of this flow case
-caseDir = '/media/yluan/DNS/PeriodicHill'  # str
+casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
 # Interpolation method when interpolating mesh grids
@@ -43,13 +44,13 @@ fs = 'grad(TKE)_grad(p)'
 seed = 123
 outlier_percent1, outlier_percent2, outlier_percent3, outlier_percent4, outlier_percent5 = \
     0.1, 0.08, 0.06, 0.04, 0.02
-load_isoforest, save_estimator = True, True
+load_isoforest, save_estimator = True, False
 
 
 """
 Plot Settings
 """
-plot_tb, plot_g, plot_x = False, False, True
+plot_tb, plot_g, plot_x = False, False, False
 # When plotting, the mesh has to be uniform by interpolation, specify target size
 uniform_mesh_size = 1e6  # int
 # Limit for bij plot
@@ -90,14 +91,16 @@ if estimator_name == 'tbdt': estimator_name = 'TBDT'
 # Ensemble name of fields useful for Machine Learning
 ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 # Initialize case object
-case = FieldData(caseName=rans_case_name, caseDir=caseDir, times=time, fields=fields)
+case = FieldData(casename=rans_case_name, casedir=casedir, times=time, fields=fields)
+case_test = FieldData(casename=test_case_name, casedir=casedir, times=time, fields=fields)
 
 
 """
 Machine Learning with Isolation Forest
 """
 list_data_train = case.readPickleData(time, 'list_data_train_seed' + str(seed))
-list_data_test = case.readPickleData(time, 'list_data_test_seed' + str(seed))
+list_data_test = case_test.readPickleData(time, 'list_data_test_seed' + str(seed))
+if '10595' not in test_case_name: list_data_train = list_data_test
 
 cc_train, cc_test = list_data_train[0], list_data_test[0]
 ccx_train, ccy_train, ccz_train = cc_train[:, 0], cc_train[:, 1], cc_train[:, 2]
@@ -105,39 +108,39 @@ ccx_test, ccy_test, ccz_test = cc_test[:, 0], cc_test[:, 1], cc_test[:, 2]
 x_train, y_train, tb_train = list_data_train[1:4]
 x_test, y_test, tb_test = list_data_test[1:4]
 
-isoforest = load(case.resultPaths[time] + isoforest_name + '.joblib') if load_isoforest else None
-isoforest2 = load(case.resultPaths[time] + isoforest_name + '2.joblib') if load_isoforest else None
-isoforest3 = load(case.resultPaths[time] + isoforest_name + '2.joblib') if load_isoforest else None
-isoforest4 = load(case.resultPaths[time] + isoforest_name + '2.joblib') if load_isoforest else None
-isoforest5 = load(case.resultPaths[time] + isoforest_name + '5.joblib') if load_isoforest else None
+isoforest = load(case.result_paths[time] + isoforest_name + '.joblib') if load_isoforest else None
+isoforest2 = load(case.result_paths[time] + isoforest_name + '2.joblib') if load_isoforest else None
+isoforest3 = load(case.result_paths[time] + isoforest_name + '2.joblib') if load_isoforest else None
+isoforest4 = load(case.result_paths[time] + isoforest_name + '2.joblib') if load_isoforest else None
+isoforest5 = load(case.result_paths[time] + isoforest_name + '5.joblib') if load_isoforest else None
 
-_, _, _, _, outliers, isoforest = InputOutlierDetection(x_train, x_test, y_train, y_test, outlierPercent=outlier_percent1, randState=seed, isoForest=isoforest)
-_, _, _, _, outliers2, isoforest2 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlierPercent=outlier_percent2, randState=seed, isoForest=isoforest2)
-_, _, _, _, outliers3, isoforest3 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlierPercent=outlier_percent3, randState=seed, isoForest=isoforest3)
-_, _, _, _, outliers4, isoforest4 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlierPercent=outlier_percent4, randState=seed, isoForest=isoforest4)
-_, _, _, _, outliers5, isoforest5 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlierPercent=outlier_percent5, randState=seed, isoForest=isoforest5)
+_, _, _, _, outliers, isoforest = InputOutlierDetection(x_train, x_test, y_train, y_test, outlier_percent=outlier_percent1, randstate=seed, isoforest=isoforest, n_estimators=1000)
+_, _, _, _, outliers2, isoforest2 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlier_percent=outlier_percent2, randstate=seed, isoforest=isoforest2, n_estimators=1000)
+_, _, _, _, outliers3, isoforest3 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlier_percent=outlier_percent3, randstate=seed, isoforest=isoforest3, n_estimators=1000)
+_, _, _, _, outliers4, isoforest4 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlier_percent=outlier_percent4, randstate=seed, isoforest=isoforest4, n_estimators=1000)
+_, _, _, _, outliers5, isoforest5 = InputOutlierDetection(x_train, x_test, y_train, y_test, outlier_percent=outlier_percent5, randstate=seed, isoforest=isoforest5, n_estimators=1000)
 
 if save_estimator and not load_isoforest:
-    dump(isoforest, case.resultPaths[time] + isoforest_name + '.joblib')
-    dump(isoforest2, case.resultPaths[time] + isoforest_name + '2.joblib')
-    dump(isoforest3, case.resultPaths[time] + isoforest_name + '3.joblib')
-    dump(isoforest4, case.resultPaths[time] + isoforest_name + '4.joblib')
-    dump(isoforest5, case.resultPaths[time] + isoforest_name + '5.joblib')
+    dump(isoforest, case.result_paths[time] + isoforest_name + '.joblib')
+    dump(isoforest2, case.result_paths[time] + isoforest_name + '2.joblib')
+    dump(isoforest3, case.result_paths[time] + isoforest_name + '3.joblib')
+    dump(isoforest4, case.result_paths[time] + isoforest_name + '4.joblib')
+    dump(isoforest5, case.result_paths[time] + isoforest_name + '5.joblib')
 
-x_train_out = outliers['xTrain']
-x_test_out = outliers['xTest']
-y_train_out = outliers['yTrain']
-y_test_out = outliers['yTest']
-anomaly_idx_train = outliers['anomalyIdxTrains']
-anomaly_idx_test = outliers['anomalyIdxTests']
-anomaly_idx_train2 = outliers2['anomalyIdxTrains']
-anomaly_idx_test2 = outliers2['anomalyIdxTests']
-anomaly_idx_train3 = outliers3['anomalyIdxTrains']
-anomaly_idx_test3 = outliers3['anomalyIdxTests']
-anomaly_idx_train4 = outliers4['anomalyIdxTrains']
-anomaly_idx_test4 = outliers4['anomalyIdxTests']
-anomaly_idx_train5 = outliers5['anomalyIdxTrains']
-anomaly_idx_test5 = outliers5['anomalyIdxTests']
+x_train_out = outliers['xtrain']
+x_test_out = outliers['xtest']
+y_train_out = outliers['ytrain']
+y_test_out = outliers['ytest']
+anomaly_idx_train = outliers['anomaly_idx_train']
+anomaly_idx_test = outliers['anomaly_idx_test']
+anomaly_idx_train2 = outliers2['anomaly_idx_train']
+anomaly_idx_test2 = outliers2['anomaly_idx_test']
+anomaly_idx_train3 = outliers3['anomaly_idx_train']
+anomaly_idx_test3 = outliers3['anomaly_idx_test']
+anomaly_idx_train4 = outliers4['anomaly_idx_train']
+anomaly_idx_test4 = outliers4['anomaly_idx_test']
+anomaly_idx_train5 = outliers5['anomaly_idx_train']
+anomaly_idx_test5 = outliers5['anomaly_idx_test']
 
 
 """
@@ -179,12 +182,12 @@ rgb_bary_test_out_mesh = ndimage.rotate(rgb_bary_test_out_mesh, 90)
 rgb_bary_train_out_mesh = ndimage.rotate(rgb_bary_train_out_mesh, 90)
 
 xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
-geometry = np.genfromtxt(caseDir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
+geometry = np.genfromtxt(casedir + '/' + rans_case_name + '/'  + "geometry.csv", delimiter=",")[:, :2]
 # Test barycentric map
 figname = 'barycentric_periodichill_test_out'
 bary_map = BaseFigure((None,), (None,), name=figname, xlabel=xlabel,
                       ylabel=ylabel, save=save_fig, show=show,
-                      figdir=case.resultPaths[time],
+                      figdir=case.result_paths[time],
                       figheight_multiplier=0.7)
 path = Path(geometry)
 patch = PathPatch(path, linewidth=0., facecolor=bary_map.gray)
@@ -203,7 +206,7 @@ bary_map.axes.set_xlabel(bary_map.xlabel)
 bary_map.axes.set_ylabel(bary_map.ylabel)
 bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + figname + '.' + ext, dpi=dpi)
+    plt.savefig(case.result_paths[time] + figname + '.' + ext, dpi=dpi)
 
 plt.close()
 # Train barycentric map
@@ -215,7 +218,7 @@ bary_map.axes.set_xlabel(bary_map.xlabel)
 bary_map.axes.set_ylabel(bary_map.ylabel)
 bary_map.axes.add_patch(next(patches))
 if save_fig:
-    plt.savefig(case.resultPaths[time] + bary_map.name + '.' + ext, dpi=dpi)
+    plt.savefig(case.result_paths[time] + bary_map.name + '.' + ext, dpi=dpi)
 
 plt.close()
 
@@ -244,7 +247,7 @@ if plot_tb:
     print('\nFinished interpolating mesh data for Tij in {:.4f} s'.format(t1 - t0))
 
     # Make an individual directory
-    tijdir = case.resultPaths[time] + '/Tij'
+    tijdir = case.result_paths[time] + '/Tij'
     os.makedirs(tijdir, exist_ok=True)
     comps = ('11', '12', '13', '22', '23', '33')
     tbcomps = ('T_{11}', 'T_{12}', 'T_{13}', 'T_{22}', 'T_{23}', 'T_{33}')
@@ -301,7 +304,7 @@ Visualize g Using Trained TBDT
 """
 if plot_g:
     # Load trained TBDT
-    regressor = load(case.resultPaths[time] + estimator_name + '.joblib')
+    regressor = load(case.result_paths[time] + estimator_name + '.joblib')
     # Predict g
     g_test = regressor.predict(x_test)
     g_train = regressor.predict(x_train)
@@ -312,7 +315,7 @@ if plot_g:
     _, _, _, g_train_mesh = interpolateGridData(ccx_train, ccy_train, g_train,
                                                            mesh_target=uniform_mesh_size, interp=interp_method)
     # Make an individual directory
-    gdir = case.resultPaths[time] + '/g'
+    gdir = case.result_paths[time] + '/g'
     os.makedirs(gdir, exist_ok=True)
     extent_test = (ccx_test.min(), ccx_test.max(), ccy_test.min(), ccy_test.max())
     extent_train = (ccx_train.min(), ccx_train.max(), ccy_train.min(), ccy_train.max())
@@ -380,7 +383,7 @@ if plot_g:
 
 
 if plot_x:
-    xdir = case.resultPaths[time] + '/X'
+    xdir = case.result_paths[time] + '/X'
     os.makedirs(xdir, exist_ok=True)
     # Interpolate to mesh
     _, _, _, x_test_mesh = interpolateGridData(ccx_test, ccy_test, x_test,
@@ -480,7 +483,7 @@ if plot_x:
 #     figname = 'Tij_' + str(i + 1)
 #     tbplot_test = PlotContourSlices3D(x_test_contour, y_test_contour, vals_test, np.arange(4), contourLvl=contour_lvl, gradientBg=False, equalAxis=True, zDir='x',
 #                                       name=figname, xLabel=xlabel, yLabel=ylabel, save=save_fig, show=show,
-#                                       figDir=case.resultPaths[time],
+#                                       figDir=case.result_paths[time],
 #                                       viewAngles=(45, 90),
 #                                       cbarOrientate='vertical',
 #                                       zLabel=None)
@@ -498,7 +501,7 @@ if plot_x:
 #     print('\nFigure ' + tbplot_test.name + '.png saved in ' + tbplot_test.figDir)
 #
 #     # tbplot_train = PlotContourSlices3D(x_train_contour, y_train_contour, vals_train, np.arange(4), contourLvl=contour_lvl, gradientBg=False, equalAxis=True,
-#     #                              name=figname, xLabel=xlabel, yLabel=ylabel,save=save_fig, show=show, figDir=case.resultPaths[time])
+#     #                              name=figname, xLabel=xlabel, yLabel=ylabel,save=save_fig, show=show, figDir=case.result_paths[time])
 #     # tbplot_train.initializeFigure()
 #     # tbplot_train.plotFigure()
 #     # tbplot_train.axes.add_patch(next(patches))

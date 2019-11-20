@@ -80,10 +80,10 @@ scaler = None  # 'maxabs', 'minmax', None
 # Whether remove low variance features
 var_threshold = -1  # float
 rf_selector_n_estimators = 0
-rf_selector_threshold = '0.25*median'  # 'median', 'mean', None
+rf_selector_threshold = None  # 'median', 'mean', None
 # Whether to train the model or directly load it from saved joblib file;
 # and whether to save estimator after training
-train_model, save_estimator = True, False  # bool
+train_model, save_estimator = True, True  # bool
 # Name of the ML estimator
 estimator_name = 'tbgb'  # "tbdt", "tbrf", "tbab", "tbrc", 'tbnn''
 # Whether to presort X for every feature before finding the best split at each node
@@ -91,11 +91,11 @@ presort = True  # bool
 # Maximum number of features to consider for best split
 max_features = 1.#(2/3., 1.)  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples at leaf
-min_samples_leaf = 4  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_leaf = 2  # list/tuple(int / float 0-1) or int / float 0-1
 # Minimum number of samples to perform a split
-min_samples_split = 16 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
+min_samples_split = 0.002 #(8, 64)  # list/tuple(int / float 0-1) or int / float 0-1
 # Max depth of the tree to prevent overfitting
-max_depth = 3#(3, 5)  # int
+max_depth = 10#(3, 5)  # int
 # L2 regularization fraction to penalize large optimal 10 g found through LS fit of min_g(bij - Tij*g)
 alpha_g_fit = 0#(0., 0.001)  # list/tuple(float) or float
 # L2 regularization coefficient to penalize large optimal 10 g during best split finder
@@ -128,9 +128,9 @@ elif estimator_name in ('TBRC', 'tbrc'):
     # b11, b22 have rank 10, b12 has rank 9, b33 has rank 5, b13 and b23 are 0 and have rank 10
     order = [0, 3, 1, 5, 4, 2]  # [4, 2, 5, 3, 1, 0]
 elif estimator_name in ('TBGB', 'tbgb'):
-    n_estimators = 3 #16
-    learning_rate = 0.1
-    subsample = 0.8
+    n_estimators = 16 #16
+    learning_rate = .1
+    subsample = 1.
     n_iter_no_change = None
     tol = 1e-8
     bij_novelty = None  # 'reset', None

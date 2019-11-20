@@ -50,8 +50,8 @@ fields = ('U', 'k', 'p', 'omega',
 # # Ensemble name of fields useful for Machine Learning
 # ml_field_ensemble_name = 'ML_Fields_' + rans_case_name
 # # Initialize case object
-case = FieldData(caseName=estimator_dir, caseDir=casedir, times=time, fields=fields, save=False)
-figdir = case.resultPaths[time] + '/ValidationCurve'
+case = FieldData(casename=estimator_dir, casedir=casedir, times=time, fields=fields, save=False)
+figdir = case.result_paths[time] + '/ValidationCurve'
 #
 # invariants = case.readPickleData(time, fileNames = ('Sij',
 #                                                    'Rij',
@@ -121,7 +121,7 @@ for i in range(len(feat_importance_all)):
         i0 += 1
 
 myplot = Plot2D((np.arange(1, 51),)*3, (feat_importance_all, feat_importance0, feat_importance_actual), save=True, show=False,
-                xlabel='Feature', ylabel = 'Importance',
+                xlabel='Feature', ylabel='Importance',
                 figwitdh='1/3', figdir=figdir, name=estimator_name + '_importance_' + rf_selector_threshold,
                 ylim=(0., 0.5))
 myplot.initializeFigure()

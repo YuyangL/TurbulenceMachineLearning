@@ -26,7 +26,7 @@ Programme Settings
 """
 # Field settings
 # Global field setting, will skip the following field settings if False
-proc_field = True  # bool
+proc_field = False  # bool
 # Whether process field data, invariants, features from scratch,
 # or use raw field pickle data and process invariants and features
 # or use raw field and invariants pickle data and process features
@@ -38,7 +38,7 @@ proc_field_feature = True  # bool
 proc_field_traintest_split = True  # bool
 
 # Whether process slice and sets data, purely for prediction
-proc_slice = False  # bool
+proc_slice = True  # bool
 proc_set = False  # bool
 
 
@@ -46,7 +46,7 @@ proc_set = False  # bool
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case
-casename = 'N_H_SeqTurb_LowZ_Rwall'  # str
+casename = 'N_H_ParTurb_LowZ_Rwall'  # 'N_H_ParTurb_LowZ_Rwall', 'N'
 # Name of the LES flow case counterpart
 casename_les = 'ALM_N_H_OneTurb'  # str
 # Absolute directory of this flow case
@@ -117,6 +117,8 @@ fs = 'grad(TKE)_grad(p)+'  # 'grad(TKE)', 'grad(p)', 'grad(TKE)_grad(p)', 'grad(
 # bij is from LES
 fields = ('k', 'epsilon', 'U',
           'grad_U', 'grad_p_rgh', 'grad_k', 'bij')
+fields_slice = ('k', 'epsilon', 'U',
+          'grad_U', 'grad_p_rgh', 'grad_k', 'bij')
 
 # Ensemble name of fields useful for Machine Learning
 mlfield_ensemble_name = 'ML_Fields_' + casename
@@ -132,21 +134,12 @@ if 'ParTurb' in casename:
         else:
             time_les = '23000.07'
         
-    # FIXME: need update
-    slicenames = ('alongWindSouthernRotor', 'alongWindNorthernRotor',
-                                           'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'twoDupstreamTurbines', 'rotorPlanes', 'oneDdownstreamTurbines',
-                                           'threeDdownstreamTurbines',
-                                           'sevenDdownstreamTurbines')
+    slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
     # Southern turbine; northern turbine center coordinates, 3D apart from each other
     turblocs = [[1244.083, 1061.262, 90.], [992.083, 1497.738, 90.]]
 elif 'OneTurb' in casename:
     if time_les == 'latestTime': time_les = '24995.0438025'
-    slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'oneDupstreamTurbine', 'rotorPlane', 'oneDdownstreamTurbine',
-                                           'threeDdownstreamTurbine',
-                                           'fiveDdownstreamTurbine',
-                                           'sevenDdownstreamTurbine')
+    slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
     set_types = ('oneDdownstreamTurbine_H',
                                          'threeDdownstreamTurbine_H',
                                          'sevenDdownstreamTurbine_H',
@@ -159,12 +152,7 @@ elif 'SeqTurb' in casename:
     if time_les == 'latestTime':
         time_les = '25000.1638025' if '_H_' in casename_les else '23000.135'
         
-    # FIXME: update
-    slicenames = ('alongWind', 'hubHeight', 'quarterDaboveHub', 'turbineApexHeight',
-                                           'twoDupstreamTurbineOne', 'rotorPlaneOne', 'rotorPlaneTwo',
-                                           'oneDdownstreamTurbineOne', 'oneDdownstreamTurbineTwo',
-                                           'threeDdownstreamTurbineOne', 'threeDdownstreamTurbineTwo',
-                                           'sixDdownstreamTurbineTwo')
+    slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
     # Upwind turbine; downwind turbine center coordinates, 7D apart
     turblocs = [[1118.083, 1279.5, 90.], [1881.917, 1720.5, 90.]]
 
@@ -224,7 +212,7 @@ case = FieldData(casename=casename, casedir=casedir, times=time, fields=fields, 
 """
 Read and Process Raw Field Data
 """
-if proc_field_raw:
+if proc_field and proc_field_raw:
     # Read raw field data specified in fields
     field_data = case.readFieldData()
     # field_data_les = case_les.readFieldData()
@@ -432,7 +420,7 @@ if proc_slice:
     # Initialize case
     slice = SliceProperties(time=time, casedir=casedir, casename=casename, rot_z=rotbox, result_folder=resultfolder)
     # Read slices
-    slice.readSlices(properties=fields, slicenames=slicenames, sliceNamesSub=slicename_sub)
+    slice.readSlices(properties=fields_slice, slicenames=slicenames, slicenames_sub=slicename_sub)
     slice_data = slice.slices_val
     # Dict storing all slice values with slice type as key, e.g. alongWind, hubHeight, etc.
     list_slicevals, list_sliceproperties, list_slicecoor = {}, {}, {}
@@ -451,26 +439,6 @@ if proc_slice:
             # If matching slice type, proceed
             if slice_type in slicename:
                 val = slice.slices_val[slicename]
-                # If kResolved and kSGSmean in propertyNames, get total kMean
-                # Same with grad_kResolved
-                if 'kResolved' in slicename:
-                    if grad_kw in slicename:
-                        for i2 in range(len(slice.slicenames)):
-                            slicename2 = slice.slicenames[i2]
-                            if slice_type in slicename2 and 'kSGSmean' in slicename2 and grad_kw in slicename2:
-                                print(' Calculating total grad(<k>) for {}...'.format(slicenames[itype]))
-                                val += slice.slices_val[slicename2]
-                                break
-
-                    else:
-                        for i2 in range(len(slice.slicenames)):
-                            slicename2 = slice.slicenames[i2]
-                            if slice_type in slicename2 and 'kSGSmean' in slicename2 and grad_kw not in slicename2:
-                                print(' Calculating total <k> for {}...'.format(slicenames[itype]))
-                                val += slice.slices_val[slicename2]
-                                val = val.reshape((-1, 1))
-                                break
-
                 list_slicevals[slice_type].append(val)
                 list_sliceproperties[slice_type].append(slicename)
                 list_slicecoor[slice_type] = slice.slices_coor[slicename]
@@ -499,8 +467,8 @@ if proc_slice:
             # epsilon SGS
             elif 'epsilon' in name:
                 epsilon = list_slicevals[slice_type][i]
-            elif 'uu' in name:
-                uuprime2 = list_slicevals[slice_type][i]
+            elif 'bij' in name:
+                bij = list_slicevals[slice_type][i]
             else:
                 warn("\nError: {} not assigned to a variable!".format(name), stacklevel=2)
 
@@ -527,7 +495,7 @@ if proc_slice:
         # possibly with scaling of 1/[1, 10, 10, 10, 100, 100, 1000, 1000, 1000, 1000]
         tb = getInvariantBases(sij, rij, quadratic_only=False, is_scale=scale_tb)
         # Step 3: anisotropy tensor bij, shape (n_samples, 6)
-        bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
+        # bij = case.getAnisotropyTensorField(uuprime2, use_oldshape=False)
         # # Step 4: evaluate 10 Tij coefficients g as output y
         # # g, rmse = case.evaluateInvariantBasisCoefficients(tb, bij, cap = capG, onegToRuleThemAll = False)
         # t0 = t.time()

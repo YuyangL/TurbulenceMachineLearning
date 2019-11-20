@@ -1,96 +1,96 @@
 import numpy as np
 from warnings import warn
 
-def InputOutlierDetection(xTrain, xTest, yTrain, yTest, outlierPercent=0.2, removal=None, isoForest=None, randState=None, onlyTrain=False, n_estimators=100):
+def InputOutlierDetection(xtrain, xtest, ytrain, ytest, outlier_percent=0.2, removal=None, isoforest=None, randstate=None, onlytrain=False, n_estimators=100):
     from sklearn.ensemble import IsolationForest
     print('\nExecuting [InputOutlierDetection] using Isolation Forest...')
     # If no current Isolation Forest exists, so to learn the current data to train the Isolation Forest model
-    if isoForest is None:
-        isoForest = IsolationForest(n_jobs=-1, verbose=2, contamination=outlierPercent, random_state=randState, n_estimators=n_estimators,
+    if isoforest is None:
+        isoforest = IsolationForest(n_jobs=-1, verbose=2, contamination=outlier_percent, random_state=randstate, n_estimators=n_estimators,
                                     bootstrap=True)
         # Train the isolation forest to define and detect outliers
-        isoForest.fit(xTrain)
+        isoforest.fit(xtrain)
         # If I just intend to train an Isolation Forest, then return the Isolation Forest and end the function
-        if onlyTrain:
-            return isoForest
+        if onlytrain:
+            return isoforest
 
     # Yield score arrays on the training and test data in which -1 means anomaly
-    xTrainAnomalyScores = isoForest.predict(xTrain)
+    xtrain_anomalyscore = isoforest.predict(xtrain)
     # If testSize = 0., then skip test data prediction
     try:
-        xTestAnomalyScores = isoForest.predict(xTest)
+        xtest_anomalyscore = isoforest.predict(xtest)
     except:
-        xTestAnomalyScores = []
+        xtest_anomalyscore = []
 
-    # meanScoreTrain = isoForest.decision_function(xTrain)
-    # meanScoreTest = isoForest.decision_function(xTest)
+    # meanScoreTrain = isoforest.decision_function(xtrain)
+    # meanScoreTest = isoforest.decision_function(xtest)
     # print('Train data anomaly score (higher is better): {0}'.format(meanScoreTrain))
     # print('Test data anomaly score (higher is better): {0}'.format(meanScoreTest))
 
     # Get the index array of all data considered abnormal (-1)
-    anomalyIdxTrains = np.where(xTrainAnomalyScores == -1)
-    anomalyIdxTests = np.where(xTestAnomalyScores == -1)
-    anomalyIdxTrains = anomalyIdxTrains[0]
-    anomalyIdxTests = anomalyIdxTests[0]
+    anomaly_idx_train = np.where(xtrain_anomalyscore == -1)
+    anomaly_idx_test = np.where(xtest_anomalyscore == -1)
+    anomaly_idx_train = anomaly_idx_train[0]
+    anomaly_idx_test = anomaly_idx_test[0]
 
     # Initialize "empty" array/list for outliers
-    xTrainOutliers = np.empty([1, xTrain.shape[1]])
-    # yTrainOutliers = np.empty(len(anomalyIdxTrains))
-    yTrainOutliers = np.empty([1, yTrain.shape[1]])
-    # If xTest is a an empty list then skip this step
+    xtrainOutliers = np.empty([1, xtrain.shape[1]])
+    # ytrainOutliers = np.empty(len(anomaly_idx_train))
+    ytrainOutliers = np.empty([1, ytrain.shape[1]])
+    # If xtest is a an empty list then skip this step
     try:
-        xTestOutliers = np.empty([1, xTest.shape[1]])
-        yTestOutliers = np.empty([1, yTest.shape[1]])
+        xtestOutliers = np.empty([1, xtest.shape[1]])
+        ytestOutliers = np.empty([1, ytest.shape[1]])
     except AttributeError:
-        xTestOutliers = ['dummy']
-        yTestOutliers = ['dummy']
+        xtestOutliers = ['dummy']
+        ytestOutliers = ['dummy']
 
-    xTrainRaw = xTrain
-    yTrainRaw = yTrain
+    xtrainRaw = xtrain
+    ytrainRaw = ytrain
     # Remove the anomaly indices iteratively
-    for i, idx in enumerate(anomalyIdxTrains):
-        xTrainOutliers = np.vstack((xTrainOutliers, xTrainRaw[idx]))
-        # yTrainOutliers[i] = yTrain[idx]
-        yTrainOutliers = np.vstack((yTrainOutliers, yTrainRaw[idx]))
+    for i, idx in enumerate(anomaly_idx_train):
+        xtrainOutliers = np.vstack((xtrainOutliers, xtrainRaw[idx]))
+        # ytrainOutliers[i] = ytrain[idx]
+        ytrainOutliers = np.vstack((ytrainOutliers, ytrainRaw[idx]))
         # If removal is 'train' or 'both, remove the outliers in the train input and target data
         if removal in ('train', 'both'):
-            yTrain = np.delete(yTrain, idx - i, 0)
+            ytrain = np.delete(ytrain, idx - i, 0)
             # 0 means the first axis -- row
-            xTrain = np.delete(xTrain, idx - i, 0)
+            xtrain = np.delete(xtrain, idx - i, 0)
 
-    # # Update xTrain and yTrain if removal was done
+    # # Update xtrain and ytrain if removal was done
     # if removal in('train', 'both'):
-    #     xTrain = xTrainInliers
-    #     yTrain = yTrainInliers
+    #     xtrain = xtrainInliers
+    #     ytrain = ytrainInliers
 
-    xTestRaw = xTest
-    yTestRaw = yTest
-    # When anomalyIdxTests is empty, this loop will not execute
-    for i, idx in enumerate(anomalyIdxTests):
-        xTestOutliers = np.vstack((xTestOutliers, xTestRaw[idx]))
-        # yTestOutliers[i] = yTest[idx]
-        yTestOutliers = np.vstack((yTestOutliers, yTestRaw[idx]))
+    xtestRaw = xtest
+    ytestRaw = ytest
+    # When anomaly_idx_test is empty, this loop will not execute
+    for i, idx in enumerate(anomaly_idx_test):
+        xtestOutliers = np.vstack((xtestOutliers, xtestRaw[idx]))
+        # ytestOutliers[i] = ytest[idx]
+        ytestOutliers = np.vstack((ytestOutliers, ytestRaw[idx]))
         # If removal is 'test' or 'both', then remove the outliers in test input and target data
         if removal in ('test', 'both'):
-            yTest = np.delete(yTest, idx - i, 0)
-            xTest = np.delete(xTest, idx - i, 0)
+            ytest = np.delete(ytest, idx - i, 0)
+            xtest = np.delete(xtest, idx - i, 0)
 
     # Since the arrays were not actually empty when they were initiated, remove the first row, first 0 means "first", second 0 means "row"
-    xTrainOutliers = np.delete(xTrainOutliers, 0, 0)
-    yTrainOutliers = np.delete(yTrainOutliers, 0, 0)
+    xtrainOutliers = np.delete(xtrainOutliers, 0, 0)
+    ytrainOutliers = np.delete(ytrainOutliers, 0, 0)
 
-    # xTestOutliers = xTestOutliers[1:]
-    xTestOutliers = np.delete(xTestOutliers, 0, 0)
-    yTestOutliers = np.delete(yTestOutliers, 0, 0)
+    # xtestOutliers = xtestOutliers[1:]
+    xtestOutliers = np.delete(xtestOutliers, 0, 0)
+    ytestOutliers = np.delete(ytestOutliers, 0, 0)
 
     # Get the outliers for later inspection
-    outliers = dict(xTrain = xTrainOutliers,
-                    xTest = xTestOutliers,
-                    yTrain = yTrainOutliers,
-                    yTest = yTestOutliers,
-                    anomalyIdxTrains = anomalyIdxTrains,
-                    anomalyIdxTests = anomalyIdxTests,
-                    xTrainAnomalyScores = xTrainAnomalyScores,
-                    xTestAnomalyScores = xTestAnomalyScores)
+    outliers = dict(xtrain=xtrainOutliers,
+                    xtest=xtestOutliers,
+                    ytrain=ytrainOutliers,
+                    ytest=ytestOutliers,
+                    anomaly_idx_train=anomaly_idx_train,
+                    anomaly_idx_test=anomaly_idx_test,
+                    xtrain_anomalyscore=xtrain_anomalyscore,
+                    xtest_anomalyscore=xtest_anomalyscore)
 
-    return xTrain, xTest, yTrain, yTest, outliers, isoForest
+    return xtrain, xtest, ytrain, ytest, outliers, isoforest
