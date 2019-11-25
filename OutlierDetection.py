@@ -23,13 +23,13 @@ import os
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both RANS and LES
-casename = 'N_H_OneTurb_LowZ_Rwall2'  # 'ALM_N_H_OneTurb', 'N_H_OneTurb_LowZ_Rwall2'
-casename_test = 'N_H_ParTurb_LowZ_Rwall'  # str
+casename = 'ALM_N_H_OneTurb'  # 'ALM_N_H_OneTurb', 'N_H_OneTurb_LowZ_Rwall2'
+casename_test = 'ALM_N_H_OneTurb'  # str
 # Absolute directory of this flow case
-casedir = '/media/yluan/RANS'  # str
+casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
-time = '5000'  # str/float/int or 'laetstTime'
-time_test = '10000'  # str/float/int or 'laetstTime'
+time = 'latestTime'  # str/float/int or 'laetstTime'
+time_test = 'latestTime'  # str/float/int or 'laetstTime'
 # Interpolation method when interpolating mesh grids
 interp_method = "linear"  # "nearest", "linear", "cubic"
 slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
@@ -42,7 +42,7 @@ Machine Learning Settings
 """
 isoforest_name = 'IsoForest'
 n_estimators = 1600
-estimator_name = 'tbgb'  # 'tbdt', 'tbgb'
+estimator_name = 'tbdt'  # 'tbdt', 'tbgb'
 outlier_percent1, outlier_percent2, outlier_percent3, outlier_percent4, outlier_percent5 = \
     0.1, 0.08, 0.06, 0.04, 0.02
 load_isoforest, save_estimator = True, True

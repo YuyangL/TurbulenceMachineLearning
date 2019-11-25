@@ -38,7 +38,7 @@ figheight_multiplier = 1.  # float
 # Save figures and show figures
 save_fig, show = True, False  # bool; bool
 # If save figure, figure extension and DPI
-ext, dpi = 'png', 1000  # str; int
+ext, dpi = 'png', 300  # str; int
 # Height limit for line plots
 heightlim = (0., 700.)  # (float, float)
 

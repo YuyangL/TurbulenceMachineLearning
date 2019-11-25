@@ -12,7 +12,7 @@ import numpy as np
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both ML and test
-casename = 'ALM_N_L_ParTurb_Yaw'  # str
+casename = 'ALM_N_L_SeqTurb'  # str
 # Absolute parent directory of ML and test case
 casedir = '/media/yluan'  # str
 time = 'latestTime'  # str/float/int or 'latestTime'
@@ -34,7 +34,7 @@ figheight_multiplier = 1.  # float
 # Save figures and show figures
 save_fig, show = True, False  # bool; bool
 # If save figure, figure extension and DPI
-ext, dpi = 'png', 1000  # str; int
+ext, dpi = 'png', 300  # str; int
 # Height limit for line plots
 heightlim = (0., 700.)  # tuple(float)
 
@@ -213,7 +213,7 @@ list_x = [g[set_types[i]] for i in range(len(set_types))]
 gplot = Plot2D(list_x=list_x, list_y=list_y, name=figname, xlabel=xlabel, ylabel=ylabel,
                save=save_fig, show=show,
                figdir=case.result_path,
-               figwidth=figwidth, xlim=xlim)
+               figwidth=figwidth, xlim=xlim, figheight_multiplier=figheight_multiplier)
 gplot.initializeFigure()
 gplot.markercolors = None
 # Go through each line location
@@ -242,7 +242,7 @@ gplot.finalizeFigure(showleg=False)
 gplot2 = Plot2D(list_x=list_x, list_y=list_y, name=figname2, xlabel=xlabel, ylabel=ylabel,
                save=save_fig, show=show,
                figdir=case.result_path,
-               figwidth=figwidth, xlim=xlim)
+               figwidth=figwidth, xlim=xlim, figheight_multiplier=figheight_multiplier)
 gplot2.initializeFigure()
 gplot2.markercolors = None
 # Go through each line location
@@ -292,7 +292,7 @@ list_x2 = [divdev_r_z[set_types[i]][::10] for i in range(len(set_types))]
 divdevr_xy_plot = Plot2D(list_x=list_x, list_y=list_y, name=figname, xlabel=xlabel, ylabel=ylabel,
                save=save_fig, show=show,
                figdir=case.result_path,
-               figwidth=figwidth, xlim=xlim)
+               figwidth=figwidth, xlim=xlim, figheight_multiplier=figheight_multiplier)
 divdevr_xy_plot.initializeFigure()
 divdevr_xy_plot.markercolors = None
 # Go through each line location
@@ -321,7 +321,7 @@ divdevr_xy_plot.finalizeFigure(showleg=False)
 divdevr_xy_plot2 = Plot2D(list_x=list_x, list_y=list_y, name=figname2, xlabel=xlabel, ylabel=ylabel,
                 save=save_fig, show=show,
                 figdir=case.result_path,
-                figwidth=figwidth, xlim=xlim)
+                figwidth=figwidth, xlim=xlim, figheight_multiplier=figheight_multiplier)
 divdevr_xy_plot2.initializeFigure()
 divdevr_xy_plot2.markercolors = None
 # Go through each line location
@@ -350,7 +350,7 @@ divdevr_xy_plot2.finalizeFigure(showleg=False)
 divdevr_z_plot = Plot2D(list_x=list_x2, list_y=list_y, name=figname3, xlabel=xlabel, ylabel=ylabel,
                          save=save_fig, show=show,
                          figdir=case.result_path,
-                         figwidth=figwidth, xlim=xlim)
+                         figwidth=figwidth, xlim=xlim, figheight_multiplier=figheight_multiplier)
 divdevr_z_plot.initializeFigure()
 divdevr_z_plot.markercolors = None
 # Go through each line location
@@ -379,7 +379,7 @@ divdevr_z_plot.finalizeFigure(showleg=False)
 divdevr_z_plot2 = Plot2D(list_x=list_x2, list_y=list_y, name=figname4, xlabel=xlabel, ylabel=ylabel,
                           save=save_fig, show=show,
                           figdir=case.result_path,
-                          figwidth=figwidth, xlim=xlim)
+                          figwidth=figwidth, xlim=xlim, figheight_multiplier=figheight_multiplier)
 divdevr_z_plot2.initializeFigure()
 divdevr_z_plot2.markercolors = None
 # Go through each line location

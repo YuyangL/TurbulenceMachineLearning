@@ -10,11 +10,11 @@ from PlottingTool import BaseFigure, Plot2D, Plot2D_MultiAxes
 User Inputs
 """
 # casename = 'ALM_N_H_OneTurb'  # 'N_H_OneTurb_LowZ_Rwall2', 'ALM_N_H_OneTurb'
-casename = 'N_H_OneTurb_LowZ_Rwall2'  # 'N_H_OneTurb_LowZ_Rwall2', 'ALM_N_H_OneTurb'
+casename = 'ALM_N_H_OneTurb'  # 'N_H_OneTurb_LowZ_Rwall2', 'ALM_N_H_OneTurb'
 casedir = '/media/yluan/RANS'
-# casedir = '/media/yluan'
+casedir = '/media/yluan'
 ml_folder = 'ML'
-estimators = ('TBDT', 'TBRF', 'TBAB', 'TBGB')
+estimators = ('TBGB',) #('TBDT', 'TBRF', 'TBAB', 'TBGB')
 domain_confinezone = 2
 ylim = (0., .5)
 
