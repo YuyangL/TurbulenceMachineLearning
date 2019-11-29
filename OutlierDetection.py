@@ -28,8 +28,8 @@ casename_test = 'ALM_N_H_OneTurb'  # str
 # Absolute directory of this flow case
 casedir = '/media/yluan'  # str
 # Which time to extract input and output for ML
-time = 'latestTime'  # str/float/int or 'laetstTime'
-time_test = 'latestTime'  # str/float/int or 'laetstTime'
+time = 'latestTime'  # str/float/int or 'latestTime'
+time_test = 'latestTime'  # str/float/int or 'latestTime'
 # Interpolation method when interpolating mesh grids
 interp_method = "linear"  # "nearest", "linear", "cubic"
 slicenames = ('hubHeight', 'quarterDaboveHub', 'turbineApexHeight')
@@ -59,7 +59,7 @@ uniform_mesh_size = 2e5  # int
 bijlims = (-1/2., 2/3.)  # (float, float)
 alpha = 0.25  # int, float [0, 1]
 gray = (80/255.,)*3
-figheight_multiplier = 2.
+figheight_multiplier = 2.25
 view_angle = (25, -115)
 equalaxis = False
 # Save anything when possible
@@ -69,8 +69,9 @@ save, show = True, False  # bool; bool
 xlabel, ylabel = (r'$x$ [m]', r'$y$ [m]')
 zlabel = r'$z$ [m]'
 show_xylabel = (False, False)
-show_zlabel = True
+show_zlabel = False
 show_ticks = (False, False, True)
+z_ticklabel = (r'$z_\mathrm{hub}$', r'$z_\mathrm{mid}$', r'$z_\mathrm{apex}$')
 xylim = (None, None)
 
 
@@ -253,7 +254,8 @@ plot3d.plotFigure()
 plot3d.list_rgb = list_val_out
 plot3d.alpha = alpha
 plot3d.plotFigure()
-plot3d.finalizeFigure(tight_layout=False, show_ticks=show_ticks, show_xylabel=show_xylabel, show_zlabel=show_zlabel)
+plot3d.finalizeFigure(tight_layout=False, show_ticks=show_ticks, show_xylabel=show_xylabel, show_zlabel=show_zlabel,
+                      z_ticklabel=z_ticklabel)
 
 
 
