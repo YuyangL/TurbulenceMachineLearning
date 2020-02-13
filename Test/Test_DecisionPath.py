@@ -89,8 +89,8 @@ case = FieldData(casename=rans_case_name, casedir=casedir, times=time, fields=fi
 """
 Load Data, Trained Estimator and Predict
 """
-list_data_train = case.readPickleData(time, 'list_data_train_seed' + str(seed))
-list_data_test = case.readPickleData(time, 'list_data_test_seed' + str(seed))
+list_data_train = case.readPickleData(time, 'list_47data_train_seed' + str(seed))
+list_data_test = case.readPickleData(time, 'list_47data_test_seed' + str(seed))
 
 cc_train, cc_test = list_data_train[0], list_data_test[0]
 ccx_train, ccy_train, ccz_train = cc_train[:, 0], cc_train[:, 1], cc_train[:, 2]
@@ -100,7 +100,7 @@ x_test, y_test, tb_test = list_data_test[1:4]
 
 
 print('\n\nLoading regressor... \n')
-regressor = load(case.result_paths[time] + estimator_name + '.joblib')
+regressor = load(case.result_paths[time] + estimator_name + '_full.joblib')
 score_test = regressor.score(x_test, y_test, tb=tb_test)
 score_train = regressor.score(x_train, y_train, tb=tb_train)
 
@@ -290,7 +290,7 @@ xplot = Plot2D_MultiAxes(list_x, list_y, list_x2, list_y2, ax2loc='y', plot_type
                name=figname, save=save_fig, show=show, figdir=xdir)
 xplot.initializeFigure()
 xplot.plotFigure(linelabel=('Train', 'Test'), showmarker=True)
-xplot.finalizeFigure(xyscale=('linear', 'symlog'))
+xplot.finalizeFigure(xyscale=('linear', 'linear'))
 
 
 """
@@ -304,10 +304,10 @@ list_y = t11_diff, g_diff
 list_x2 = np.arange(len(t11_test)) + 1
 list_y2 = t11g_diff_cumu
 xlabel = 'Basis $i$'
-ylabel = "$|T'^{(i)}_{11}|$ \& $|g'^{(i)}|$"
-xlim = x2lim = None  # min(list_x2), max(list_x2)
+ylabel = 'Error'  # "$|T'^{(i)}_{11}|$ \& $|g'^{(i)}|$"
+xlim = x2lim = (1, 10)  # min(list_x2), max(list_x2)
 ylim = None
-y2lim = 0, 10*max(list_y2)
+y2lim = 0., max(list_y2)**2.
 t11gplot = Plot2D_MultiAxes(list_x, list_y, list_x2, list_y2, ax2loc='y', plot_type2='shade',
                             ax2label="$|\sum_i(T^{(i)}_{11}g^{(i)})'|$", figwidth='1/3',
                             xlim=xlim, x2lim=x2lim, ylim=ylim, y2lim=y2lim,
@@ -315,4 +315,4 @@ t11gplot = Plot2D_MultiAxes(list_x, list_y, list_x2, list_y2, ax2loc='y', plot_t
                             name=figname, save=save_fig, show=show, figdir=gdir)
 t11gplot.initializeFigure()
 t11gplot.plotFigure(linelabel=("$|T'^{(i)}_{11}|$", "$|g'^{(i)}|$"), xyscale2=('linear', 'symlog'),  showmarker=True)
-t11gplot.finalizeFigure(xyscale=('linear', 'symlog'))
+t11gplot.finalizeFigure(xyscale=('linear', 'linear'))

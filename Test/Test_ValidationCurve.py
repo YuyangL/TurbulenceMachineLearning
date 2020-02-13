@@ -159,8 +159,8 @@ os.makedirs(figdir, exist_ok=True)
 """
 Read Data
 """
-list_data_train = case.readPickleData(time, 'list_data_train_seed' + str(seed))
-list_data_test = case.readPickleData(time, 'list_data_test_seed' + str(seed))
+list_data_train = case.readPickleData(time, 'list_47data_train_seed' + str(seed))
+list_data_test = case.readPickleData(time, 'list_47data_test_seed' + str(seed))
 cc_train, cc_test = list_data_train[0], list_data_test[0]
 ccx_train, ccy_train, ccz_train = cc_train[:, 0], cc_train[:, 1], cc_train[:, 2]
 ccx_test, ccy_test, ccz_test = cc_test[:, 0], cc_test[:, 1], cc_test[:, 2]
@@ -336,7 +336,7 @@ if len(labels0) <= 3:
     i = 0
     for i0 in range(0, myplot.narr2, 2):
         # xscale2 = 'symlog' if max(myplot.list_x2[i0])/np.maximum(min(np.abs(myplot.list_x2[i0])), 1e-10) > 100 else 'linear'
-        color = myplot.colors[i + myplot.narr] if myplot.plot_type2[i] != 'shade' else (160/255., 160/255., 160/255.)
+        color = myplot.colors[i + myplot.narr] if myplot.plot_type2[i] != 'shade' else (150/255., 150/255., 150/255.)
         # If new axes are x
         if myplot.ax2loc == 'x':
             myplot.axes2[i] = myplot.axes.twiny()
@@ -344,7 +344,7 @@ if len(labels0) <= 3:
             myplot.axes2[i].xaxis.set_ticks_position("bottom")
             myplot.axes2[i].xaxis.set_label_position("bottom")
             # Offset the twin axis below the host
-            myplot.axes2[i].spines['bottom'].set_position(('axes', -0.3*(i + 1)))
+            myplot.axes2[i].spines['bottom'].set_position(('axes', -.375*(i + 1)))
         # Else if new axes are y
         else:
             myplot.axes2[i] = myplot.axes.twinx()
@@ -383,7 +383,7 @@ if len(labels0) <= 3:
         myplot.axes.set_zorder(myplot.axes2[i].get_zorder() + 1)
         if myplot.plot_type2[i] == 'shade':
             myplot.plots2[i] = myplot.axes2[i].fill_between(myplot.list_x2[i], 0, myplot.list_y2[i], alpha=1,
-                                                        facecolor=(160/255., 160/255., 160/255.),
+                                                        facecolor=(150/255., 150/255., 150/255.),
                                                         interpolate=False)
         elif myplot.plot_type2[i] == 'line':
             myplot.axes2[i].plot(myplot.list_x2[i0], myplot.list_y2[i0],
@@ -397,7 +397,7 @@ if len(labels0) <= 3:
 
         i += 1
 
-    myplot.finalizeFigure(tight_layout=False, xyscale=(xscales[0], yscale))
+    myplot.finalizeFigure(tight_layout=True, xyscale=(xscales[0], yscale))
 # Otherwise, if 4 hyper-parameters or more, divide it to two plots
 else:
     # 1st plot, plotting first 2 hyper-parameters
@@ -433,7 +433,7 @@ else:
     i = 0
     for i0 in range(0, myplot.narr2, 2):
         # xscale2 = 'symlog' if max(myplot.list_x2[i0])/np.maximum(min(np.abs(myplot.list_x2[i0])), 1e-10) > 100 else 'linear'
-        color = myplot.colors[i + myplot.narr] if myplot.plot_type2[i] != 'shade' else (160/255., 160/255., 160/255.)
+        color = myplot.colors[i + myplot.narr] if myplot.plot_type2[i] != 'shade' else (150/255., 150/255., 150/255.)
         # If new axes are x
         if myplot.ax2loc == 'x':
             myplot.axes2[i] = myplot.axes.twiny()
@@ -480,7 +480,7 @@ else:
         myplot.axes.set_zorder(myplot.axes2[i].get_zorder() + 1)
         if myplot.plot_type2[i] == 'shade':
             myplot.plots2[i] = myplot.axes2[i].fill_between(myplot.list_x2[i], 0, myplot.list_y2[i], alpha=1,
-                                                            facecolor=(160/255., 160/255., 160/255.),
+                                                            facecolor=(150/255., 150/255., 150/255.),
                                                             interpolate=False)
         elif myplot.plot_type2[i] == 'line':
             myplot.axes2[i].plot(myplot.list_x2[i0], myplot.list_y2[i0],

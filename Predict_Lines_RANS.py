@@ -7,14 +7,15 @@ import time as t
 from PlottingTool import BaseFigure, Plot2D, Plot2D_Image, PlotContourSlices3D, PlotSurfaceSlices3D, PlotImageSlices3D
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 """
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both ML and test
-casename = 'N_H_OneTurb_LowZ_Rwall2'  # 'N_H_OneTurb_LowZ_Rwall2', 'N_H_ParTurb_LowZ_Rwall'
-casename_les = 'ALM_N_H_OneTurb'  # 'ALM_N_H_OneTurb', 'ALM_N_H_ParTurb2'
+casename = 'N_H_ParTurb_LowZ_Rwall'  # 'N_H_OneTurb_LowZ_Rwall2', 'N_H_ParTurb_LowZ_Rwall'
+casename_les = 'ALM_N_H_ParTurb2'  # 'ALM_N_H_OneTurb', 'ALM_N_H_ParTurb2'
 # Absolute parent directory of ML and test case
 casedir = '/media/yluan/RANS'  # str
 casedir_les = '/media/yluan'  # str
@@ -38,7 +39,7 @@ figheight_multiplier = 1.  # float
 # Save figures and show figures
 save_fig, show = True, False  # bool; bool
 # If save figure, figure extension and DPI
-ext, dpi = 'png', 300  # str; int
+ext, dpi = 'pdf', 300  # str; int
 # Height limit for line plots
 heightlim = (0., 700.)  # (float, float)
 
@@ -231,12 +232,25 @@ def regroupValueDictionary(set_locs, val_dict_rans, val_dict_blend, val_dict_les
 
     return val_plots
 
-def prepareLineValues(set_locs, xlocs, val_dict, val_lim, lim_multiplier=4., linespan=8.):
+
+
+
+def prepareLineValues(set_locs, xlocs, val_dict, val_lim, lim_multiplier=4., linespan=8., normalize=False):
     """
     Prepare values line dictionary by scaling it to within the linespan.
+    If normalize is True, lim_multiplier and linespan are ignored.
     """
-    relaxed_lim = (val_lim[1] - val_lim[0])*lim_multiplier
-    scale = linespan/relaxed_lim
+    from functools import partial
+    def forloop(jk_inputs, val_dict, setloc, scale, xloc):
+        j, k = jk_inputs
+        # Inplace update
+        val_dict[setloc][j][k] = val_dict[setloc][j][k]*scale
+        val_dict[setloc][j][k] = val_dict[setloc][j][k] + xloc
+        # return val_dict
+
+    relaxed_lim = (val_lim[1] - val_lim[0])*lim_multiplier if not normalize else max(val_lim[1], abs(val_lim[0])) #(val_lim[1] - val_lim[0])
+    scale = linespan/relaxed_lim if not normalize else 2./relaxed_lim
+
     print('Scale is {}'.format(scale))
     for i, setloc in enumerate(set_locs):
         # # Limit if prediction is too off
@@ -249,12 +263,20 @@ def prepareLineValues(set_locs, xlocs, val_dict, val_lim, lim_multiplier=4., lin
             # Shift them to their respective x location
             val_dict[setloc] = val_dict[setloc] + xlocs[i]
         else:
-            # For a set location, go through all figures
+            jklst = []
             for j in range(len(val_dict[setloc])):
-                # For each figure, go through all lines
                 for k in range(len(val_dict[setloc][j])):
-                    val_dict[setloc][j][k] = val_dict[setloc][j][k]*scale
-                    val_dict[setloc][j][k] = val_dict[setloc][j][k] + xlocs[i]
+                    jklst.append((j, k))
+
+            # Mapping all possible j and k indices
+            list(map(partial(forloop, val_dict=val_dict, setloc=setloc, scale=scale, xloc=xlocs[i]), jklst))
+
+            # # For a set location, go through all figures
+            # for j in range(len(val_dict[setloc])):
+            #     # For each figure, go through all lines
+            #     for k in range(len(val_dict[setloc][j])):
+            #         val_dict[setloc][j][k] = val_dict[setloc][j][k]*scale
+            #         val_dict[setloc][j][k] = val_dict[setloc][j][k] + xlocs[i]
 
     return val_dict
 
@@ -263,16 +285,19 @@ def plotOneTurbAuxiliary(plot_obj, xlim, ylim):
     Plot shaded area for OneTurb case since some areas are not predicted.
     Also plot turbine location.
     """
-    plot_obj.axes.fill_between(xlim, ylim[1] - 252, ylim[1], facecolor=plot_obj.gray, alpha=0.25, zorder=100)
-    plot_obj.axes.fill_between(xlim, ylim[0], ylim[0] + 252, facecolor=plot_obj.gray, alpha=0.25, zorder=100)
-    plot_obj.axes.plot(np.zeros(2), [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    # plot_obj.axes.fill_between(xlim, ylim[1] - 252, ylim[1], facecolor=plot_obj.gray, alpha=0.25, zorder=100)
+    # plot_obj.axes.fill_between(xlim, ylim[0], ylim[0] + 252, facecolor=plot_obj.gray, alpha=0.25, zorder=100)
+    # plot_obj.axes.plot(np.zeros(2), [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    plot_obj.axes.plot(np.zeros(2), [-.5, .5], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
 
 def plotParTurbAuxiliary(plot_obj):
     """
     Plot turbine locations for ParTurb.
     """
-    plot_obj.axes.plot(np.zeros(2), [126, 252], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
-    plot_obj.axes.plot(np.zeros(2), [630, 756], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    # plot_obj.axes.plot(np.zeros(2), [126, 252], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    # plot_obj.axes.plot(np.zeros(2), [630, 756], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    plot_obj.axes.plot(np.zeros(2), [-2.5, -1.5], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    plot_obj.axes.plot(np.zeros(2), [1.5, 2.5], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
 
 def plotSeqTurbAuxiliary(plot_obj, xlim, ylim):
     """
@@ -300,14 +325,21 @@ uxy_plots = regroupValueDictionary(set_locs, uxy, uxy_blend, uxy_les)
 uz_plots = regroupValueDictionary(set_locs, uz, uz_blend, uz_les)
 ls = ('-.', '-', '--')
 xlim = (-2, 5) if figwidth == 'half' else (-2, 12)
+ylim = (-1., 1.) if 'ParTurb' not in casename else (-3.5, 3.5)
 # Prepare line values
-g = prepareLineValues(set_locs, offset_d, g_plots, glim)
+# g = prepareLineValues(set_locs, offset_d, g_plots, glim)
+# Normalized G = G/|G|_max
+g = prepareLineValues(set_locs, offset_d, g_plots, glim, normalize=True)
 k = prepareLineValues(set_locs, offset_d, k_plots, klim, linespan=4.)
 epsilon = prepareLineValues(set_locs, offset_d, epsilon_plots, epslim, linespan=4.)
-divdev_r_xy = prepareLineValues(set_locs, offset_d, divdev_r_xy_plots, divdev_r_lim[0])
+# Normalized divDevR_hor = divDevR_hor/|divDevR_hor|_max
+# divdev_r_xy = prepareLineValues(set_locs, offset_d, divdev_r_xy_plots, divdev_r_lim[0])
+divdev_r_xy = prepareLineValues(set_locs, offset_d, divdev_r_xy_plots, divdev_r_lim[0], normalize=True)
 divdev_r_z = prepareLineValues(set_locs, offset_d, divdev_r_z_plots, divdev_r_lim[1])
 uxy = prepareLineValues(set_locs, offset_d, uxy_plots, ulim[0], linespan=2.)
-uz = prepareLineValues(set_locs, offset_d, uz_plots, ulim[1])
+# Normalized uz = uz/|uz|_max
+# uz = prepareLineValues(set_locs, offset_d, uz_plots, ulim[1])
+uz = prepareLineValues(set_locs, offset_d, uz_plots, ulim[1], normalize=True)
 
 
 """
@@ -315,8 +347,21 @@ Plot G for 3 Horizontal Lines in 5 figures
 """
 # 5 plots for each variables, starting with G
 fignames = ["G" + str(i) for i in range(5)]
-xlabel, ylabel = (r'$D$ [-]', 'Horizontal distance [m]')
-list_y = [case.coor[set_locs[i] + line_orient + property_names[0]] for i in range(len(set_locs))]
+# Normalized G, renamed to P_k
+xlabel, ylabel = (r'$P_k/|P_k|_\mathrm{max}$', r'$d/D$')
+# Normalized y
+list_y = [case.coor[set_locs[i] + line_orient + property_names[0]]/126.
+          for i in range(len(set_locs))]
+# Normalized y mean
+ymean = (max(list_y[0]) + min(list_y[0]))/2.
+ymean1 = (max(list_y[-1]) + min(list_y[-1]))/2.
+# Center y around 0 y/D
+# list_y = [list_y[i] - ymean if i < 3 else ymean1 for i in range(len(list_y))]
+for i in range(len(list_y)):
+    list_y[i] -= ymean if i < 3 else ymean1
+
+
+# [DEPRECATED]
 if figwidth == 'full':
     yoffset = 255.
     for i in range(3, 6):
@@ -327,7 +372,7 @@ for i0 in range(len(fignames)):
     gplot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
                    save=save_fig, show=show,
                    figdir=case.result_path,
-                   figwidth=figwidth, xlim=xlim)
+                   figwidth=figwidth, xlim=xlim, ylim=ylim)
     gplot.initializeFigure()
     gplot.markercolors = None
     # Go through each line location
@@ -335,7 +380,8 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels[i0][j] if i == 0 else None
-            gplot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=gplot.colors[j], alpha=0.75, ls=ls[j])
+            # Flip y
+            gplot.axes.plot(list_x[i][:, j], -list_y[i], label=label, color=gplot.colors[j], alpha=.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -345,8 +391,24 @@ for i0 in range(len(fignames)):
     else:
         plotSeqTurbAuxiliary(gplot, xlim, (min(list_y[0]), max(list_y[0])))
 
-    gplot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
-    gplot.finalizeFigure(showleg=False)
+    # Plot vertical dotted lines to indicate where the lines are samples
+    gplot.axes.plot((-1, -1), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
+    gplot.axes.plot((1, 1), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
+    gplot.axes.plot((3, 3), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
+
+    plt.xticks(np.arange(-1, 5), ('0', '', '1', '', '', '', '', '', '', '', '', ''))
+    plt.xticks((-1, 1, 3, 5), ('0', '1', '', '', '', '', '', '', '', '', ''))
+    gplot.axes.grid(alpha=.25)
+    gplot.axes.set_xlabel(gplot.xlabel)
+    gplot.axes.set_ylabel(gplot.ylabel)
+    gplot.axes.set_ylim(gplot.ylim)
+    # Disable legend and provide it in caption
+    # gplot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
+    plt.savefig(gplot.figdir + '/' + gplot.name + '.' + ext, transparent=False,
+                dpi=dpi)
+    print('\nFigure ' + gplot.name + '.' + ext + ' saved in ' + gplot.figdir)
+    plt.show() if gplot.show else plt.close()
+    # gplot.finalizeFigure(showleg=False)
 
 
 """
@@ -354,15 +416,24 @@ Plot div(dev(Rij))_xy and div(dev(Rij))_z Lines for 3 Locations in 5 Figures
 """
 # 5 plots for each variables, currently div(dev(R))_xy
 fignames = ["divDevRxy" + str(i) for i in range(5)]
-list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::5] for i in range(len(set_locs))]
+xlabel = r'$\left( \nabla \cdot R_{ij}^D \right)_\mathrm{hor}/\left( \nabla \cdot R_{ij}^D \right)_\mathrm{hor, max}$'
+list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::3]/126.
+          for i in range(len(set_locs))]
+# Normalized y mean
+ymean = (max(list_y[0]) + min(list_y[0]))/2.
+ymean1 = (max(list_y[-1]) + min(list_y[-1]))/2.
+# Center y around 0 y/D
+for i in range(len(list_y)):
+    list_y[i] -= ymean if i < 3 else ymean1
+
 # Go through every figure
 for i0 in range(len(fignames)):
-    list_x = [np.array(divdev_r_xy[set_locs[i]][i0]).T[::5] for i in range(len(set_locs))]
+    list_x = [np.array(divdev_r_xy[set_locs[i]][i0]).T[::3] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     divdev_r_xy_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
                    save=save_fig, show=show,
                    figdir=case.result_path,
-                   figwidth=figwidth, xlim=xlim)
+                   figwidth=figwidth, xlim=xlim, ylim=ylim)
     divdev_r_xy_plot.initializeFigure()
     divdev_r_xy_plot.markercolors = None
     # Go through each line location
@@ -370,7 +441,8 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels[i0][j] if i == 0 else None
-            divdev_r_xy_plot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=divdev_r_xy_plot.colors[j], alpha=0.75, ls=ls[j])
+            # Flip y
+            divdev_r_xy_plot.axes.plot(list_x[i][:, j], -list_y[i], label=label, color=divdev_r_xy_plot.colors[j], alpha=.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -380,8 +452,24 @@ for i0 in range(len(fignames)):
     else:
         plotSeqTurbAuxiliary(divdev_r_xy_plot, xlim, (min(list_y[0]), max(list_y[0])))
 
-    divdev_r_xy_plot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
-    divdev_r_xy_plot.finalizeFigure(showleg=False)
+    # Plot vertical dotted lines to indicate where the lines are samples
+    divdev_r_xy_plot.axes.plot((-1, -1), (min(list_y[0]), max(list_y[0])), color=divdev_r_xy_plot.gray, alpha=.8, ls=':')
+    divdev_r_xy_plot.axes.plot((1, 1), (min(list_y[0]), max(list_y[0])), color=divdev_r_xy_plot.gray, alpha=.8, ls=':')
+    divdev_r_xy_plot.axes.plot((3, 3), (min(list_y[0]), max(list_y[0])), color=divdev_r_xy_plot.gray, alpha=.8, ls=':')
+
+    plt.xticks(np.arange(-1, 5), ('0', '', '1', '', '', '', '', '', '', '', '', ''))
+    plt.xticks((-1, 1, 3, 5), ('0', '1', '', '', '', '', '', '', '', '', ''))
+    divdev_r_xy_plot.axes.grid(alpha=.25)
+    divdev_r_xy_plot.axes.set_xlabel(divdev_r_xy_plot.xlabel)
+    divdev_r_xy_plot.axes.set_ylabel(divdev_r_xy_plot.ylabel)
+    divdev_r_xy_plot.axes.set_ylim(divdev_r_xy_plot.ylim)
+    plt.savefig(divdev_r_xy_plot.figdir + '/' + divdev_r_xy_plot.name + '.' + ext, transparent=False,
+                dpi=dpi)
+    print('\nFigure ' + divdev_r_xy_plot.name + '.' + ext + ' saved in ' + divdev_r_xy_plot.figdir)
+    plt.show() if divdev_r_xy_plot.show else plt.close()
+
+    # divdev_r_xy_plot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
+    # divdev_r_xy_plot.finalizeFigure(showleg=False)
 
 # 5 plots for each variables, currently div(dev(R))_z
 fignames = ["divDevRz" + str(i) for i in range(5)]
@@ -401,7 +489,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels[i0][j] if i == 0 else None
-            divdev_r_z_plot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=divdev_r_z_plot.colors[j], alpha=0.75, ls=ls[j])
+            divdev_r_z_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=divdev_r_z_plot.colors[j], alpha=0.75, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -437,7 +525,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            k_plot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=k_plot.colors[j], alpha=0.75, ls=ls[j])
+            k_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=k_plot.colors[j], alpha=0.75, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -477,7 +565,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            epsilon_plot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=epsilon_plot.colors[j], alpha=0.75, ls=ls[j])
+            epsilon_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=epsilon_plot.colors[j], alpha=0.75, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -517,7 +605,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            uxy_plot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=uxy_plot.colors[j], alpha=0.75, ls=ls[j])
+            uxy_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=uxy_plot.colors[j], alpha=0.75, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -536,15 +624,25 @@ for i0 in range(len(fignames)):
 
 # 1 plot for Uz
 fignames = ["Uz"]
-list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::5] for i in range(len(set_locs))]
+list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::3]/126.
+          for i in range(len(set_locs))]
+# Normalized y mean
+ymean = (max(list_y[0]) + min(list_y[0]))/2.
+ymean1 = (max(list_y[-1]) + min(list_y[-1]))/2.
+
+# Center y around 0 y/D
+for i in range(len(list_y)):
+    list_y[i] -= ymean if i < 3 else ymean1
+
+xlabel = r'$u_z/|u_z|_\mathrm{max}$'
 # Go through every figure
 for i0 in range(len(fignames)):
-    list_x = [np.array(uz[set_locs[i]][i0]).T[::5] for i in range(len(set_locs))]
+    list_x = [np.array(uz[set_locs[i]][i0]).T[::3] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     uz_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
                               save=save_fig, show=show,
                               figdir=case.result_path,
-                              figwidth=figwidth, xlim=xlim)
+                              figwidth=figwidth, xlim=xlim, ylim=ylim)
     uz_plot.initializeFigure()
     uz_plot.markercolors = None
     # Go through each line location
@@ -552,7 +650,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            uz_plot.axes.plot(list_x[i][:, j], list_y[i], label=label, color=uz_plot.colors[j], alpha=0.75, ls=ls[j])
+            uz_plot.axes.plot(list_x[i][:, j], -list_y[i], label=label, color=uz_plot.colors[j], alpha=.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -562,8 +660,24 @@ for i0 in range(len(fignames)):
     else:
         plotSeqTurbAuxiliary(uz_plot, xlim, (min(list_y[0]), max(list_y[0])))
 
-    uz_plot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
-    uz_plot.finalizeFigure(showleg=False)
+    # Plot vertical dotted lines to indicate where the lines are samples
+    uz_plot.axes.plot((-1, -1), (min(list_y[0]), max(list_y[0])), color=uz_plot.gray, alpha=.8, ls=':')
+    uz_plot.axes.plot((1, 1), (min(list_y[0]), max(list_y[0])), color=uz_plot.gray, alpha=.8, ls=':')
+    uz_plot.axes.plot((3, 3), (min(list_y[0]), max(list_y[0])), color=uz_plot.gray, alpha=.8, ls=':')
+
+    plt.xticks(np.arange(-1, 5), ('0', '', '1', '', '', '', '', '', '', '', '', ''))
+    plt.xticks((-1, 1, 3, 5), ('0', '1', '', '', '', '', '', '', '', '', ''))
+    uz_plot.axes.grid(alpha=.25)
+    uz_plot.axes.set_xlabel(uz_plot.xlabel)
+    uz_plot.axes.set_ylabel(uz_plot.ylabel)
+    uz_plot.axes.set_ylim(uz_plot.ylim)
+    plt.savefig(uz_plot.figdir + '/' + uz_plot.name + '.' + ext, transparent=False,
+                dpi=dpi)
+    print('\nFigure ' + uz_plot.name + '.' + ext + ' saved in ' + uz_plot.figdir)
+    plt.show() if uz_plot.show else plt.close()
+
+    # uz_plot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
+    # uz_plot.finalizeFigure(showleg=False)
 
 # # Prepare values to scale with x in the plot
 # divdev_r_xy = prepareLineValues(set_locs, offset_d, divdev_r_xy, (divdev_r_xy_min, divdev_r_xy_max),

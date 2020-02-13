@@ -17,7 +17,7 @@ User Inputs, Anything Can Be Changed Here
 casedir = '/media/yluan/DNS/PeriodicHill'  # str
 # Which time to extract input and output for ML
 time = '5000'  # str/float/int or 'last'
-rf_selector_threshold='median'
+rf_selector_threshold='0.1median'
 # The case folder name storing the estimator
 estimator_folder = "TBDT/{50_0.002_2_0}_4cv" + '_' + rf_selector_threshold
 estimator_folder0 = "TBDT/{50_0.002_2_0}_4cv"

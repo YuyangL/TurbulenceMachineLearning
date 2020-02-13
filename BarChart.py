@@ -6,7 +6,7 @@ from PlottingTool import BaseFigure, Plot2D, Plot2D_MultiAxes
 import matplotlib.pyplot as plt
 from math import sqrt
 
-bar_comp = ('LES precursor', 'Wind plant LES', 'Wind plant RANS', r'Wind plant RANS w/ LES $b_{ij}$ injection')
+bar_comp = ('LES precursor', 'Wind plant LES', 'Wind plant RANS', r'LES $b_{ij}$ injection')
 
 # CPU hour
 xlabel = ('H-OneTurb LES', 'H-OneTurb RANS', 'H-ParTurb LES', 'H-ParTurb RANS', 'L-ParTurb', 'L-ParTurb-Yaw', 'H-ParTurb-HiSpeed', 'L-SeqTurb')
@@ -33,7 +33,7 @@ for i in range(len(xlabel)):
 # x locations
 ind = np.arange(len(xlabel))
 # Width of bars
-width = 0.25
+width = 0.3
 plot = BaseFigure([], [], 'CPUhour', figdir='/media/yluan/', show=False, save=True,
                   ylabel='CPU hour', xlabel='')
 plot.initializeFigure()
@@ -41,7 +41,7 @@ p0 = plot.axes.bar(ind, precursor, width, zorder=10)
 p1 = plot.axes.bar(ind, alm, width, bottom=precursor, zorder=10)
 p2 = plot.axes.bar(ind, rans, width, bottom=precursor_alm, zorder=10)
 p3 = plot.axes.bar(ind, rans_bij, width, bottom=precursor_alm_rans, zorder=10)
-plt.xticks(ind, xlabel, rotation='20')
+plt.xticks(ind, xlabel, rotation='30')
 plt.legend((p0[0], p1[0], p2[0], p3[0]), bar_comp, shadow=False, fancybox=False)
 # plt.show()
 plot.finalizeFigure(show_xylabel=(False, True), xyscale=('bla', 'bla'))
@@ -100,7 +100,7 @@ plot.initializeFigure()
 p0 = plot.axes.bar(ind, times, width, zorder=100)
 p1 = plot.axes.bar(ind2, times2, width, zorder=100)
 plt.legend((p0[0], p1[0]), ('TBDT', 'TBRF w/ 8 DT'), shadow=False, fancybox=False)
-plt.xticks(np.arange(5), xlabel, rotation='20')
+plt.xticks(np.arange(5), xlabel, rotation='15')
 # plt.show()
 plot.finalizeFigure(show_xylabel=(False, True), xyscale=('bla', 'bla'))
 
