@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 User Inputs, Anything Can Be Changed Here
 """
 # Name of the flow case in both ML and test
-casename = 'N_H_OneTurb_600m'  # 'N_H_OneTurb_LowZ_Rwall2', 'N_H_ParTurb_LowZ_Rwall'
-casename_les = 'ALM_N_H_OneTurb'  # 'ALM_N_H_OneTurb', 'ALM_N_H_ParTurb2'
+casename = 'N_L_SeqTurb_600m'  # 'N_H_OneTurb_LowZ_Rwall2', 'N_H_ParTurb_LowZ_Rwall'
+casename_les = 'ALM_N_L_SeqTurb'  # 'ALM_N_H_OneTurb', 'ALM_N_H_ParTurb2'
 # Absolute parent directory of ML and test case
 casedir = '/media/yluan/RANS'  # str
 casedir_les = '/media/yluan'  # str
@@ -34,7 +34,6 @@ figfolder = 'Result'
 fieldrot = 30.  # float
 # Subsample for barymap coordinates, jump every "subsample"
 subsample = 50  # int
-figheight_multiplier = 1.  # float
 # Save figures and show figures
 save_fig, show = True, False  # bool; bool
 # If save figure, figure extension and DPI
@@ -48,9 +47,6 @@ Process User Inputs, Don't Change
 """
 property_types = ('G', 'k', 'epsilon', 'XYbary', 'divDevR_blend', 'U')
 property_types_les = ('GAvg', 'kTotal', 'epsilonTotal', 'XYbary', 'divDevR', 'UAvg')
-# Pure RANS with ML
-property_names = ('G_G_pred_TBDT_G_pred_TBRF_G_pred_TBAB_G_pred_TBGB_k_epsilon',
-                  'XYbary_XYbary_pred_TBDT_XYbary_pred_TBRF_XYbary_pred_TBAB_XYbary_pred_TBGB_divDevR_blend_divDevR_pred_TBDT_divDevR_pred_TBRF_divDevR_pred_TBAB_divDevR_pred_TBGB_U')
 # Pure RANS w/o ML
 property_names = ('G_k_epsilon', 'divDevR_blend_U')
 
@@ -63,15 +59,17 @@ nlines = 6 if 'TBRFexcl' in property_names[0] else 5
 # 6D, 8D, 10D downstream upwind turbine are exclusive to SeqTurb
 if 'SeqTurb' in casename:
     set_locs = ('oneDupstreamTurbine',
-                 'oneDdownstreamTurbine',
-                 'threeDdownstreamTurbine',
-                 'sixDdownstreamTurbine',
-                 'eightDdownstreamTurbine',
-                 'tenDdownstreamTurbine')
+                'oneDdownstreamTurbine',
+                'threeDdownstreamTurbine',
+                'sixDdownstreamTurbine',
+                'eightDdownstreamTurbine',
+                'tenDdownstreamTurbine')
+    time, time_blend, time_les = '5000', 'latestTime', 'latestTime'
+
 else:
     set_locs = ('oneDupstreamTurbine',
-                 'oneDdownstreamTurbine',
-                 'threeDdownstreamTurbine')
+                'oneDdownstreamTurbine',
+                'threeDdownstreamTurbine')
     # Final time step of pure RANS, bij injected RANS, and pure LES
     if 'ParTurb' in casename:
         time, time_blend, time_les = '5000', 'latestTime', 'latestTime'
@@ -113,7 +111,7 @@ def readDataFromSet(set_obj, set_locs, line_orient, property_names, n_estimators
     xybary_col = n_estimators*3
     divdev_r_col = n_estimators*3
     for setloc in set_locs:
-    # GAvg, G_TBDT, G_TBRF, (G_TBRFexcl), G_TBAB, G_TBGB
+        # GAvg, G_TBDT, G_TBRF, (G_TBRFexcl), G_TBAB, G_TBGB
         g[setloc] = set_obj.data[setloc + line_orient + property_names[0]][:, :gcol]
         gmin_tmp, gmax_tmp = min(g[setloc][:, 0]), max(g[setloc][:, 0])
         if gmin_tmp < gmin: gmin = gmin_tmp
@@ -172,8 +170,6 @@ def readDataFromSet(set_obj, set_locs, line_orient, property_names, n_estimators
     return g, k, epsilon, divdev_r_xy, divdev_r_z, uxy, uz, glim, klim, epslim, divdev_r_lim, ulim
 
 # Go through each set location
-# # Pure RANS w/ ML
-# g, k, epsilon, divdev_r_xy, divdev_r_z, uxy, uz, glim, klim, epslim, divdev_r_lim, ulim = readDataFromSet(case, set_locs, line_orient, property_names)
 
 # Pure LES
 g_les, k_les, epsilon_les, divdev_r_xy_les, divdev_r_z_les, uxy_les, uz_les, glim_les, klim_les, epslim_les, divdev_r_lim_les, ulim_les = readDataFromSet(case_les,
@@ -182,19 +178,19 @@ g_les, k_les, epsilon_les, divdev_r_xy_les, divdev_r_z_les, uxy_les, uz_les, gli
                                                                                                                                                           property_names_les)
 
 # Pure RANS w/o ML
-g, k, epsilon = {}, {}, {}
-divdev_r, divdev_r_xy, divdev_r_z = {}, {}, {}
-u, uxy, uz = {}, {}, {}
+g_rans, k_rans, epsilon_rans = {}, {}, {}
+divdev_r_rans, divdev_r_xy_rans, divdev_r_z_rans = {}, {}, {}
+u_rans, uxy_rans, uz_rans = {}, {}, {}
 for setloc in set_locs:
-    g[setloc] = case.data[setloc + line_orient + property_names[0]][:, 0]
-    k[setloc] = case.data[setloc + line_orient + property_names[0]][:, 1]
-    epsilon[setloc] = case.data[setloc + line_orient + property_names[0]][:, 2]
-    divdev_r[setloc] = case.data[setloc + line_orient + property_names[1]][:, :3]
-    divdev_r_xy[setloc] = np.sqrt(divdev_r[setloc][:, 0]**2 + divdev_r[setloc][:, 1]**2)
-    divdev_r_z[setloc] = divdev_r[setloc][:, 2]
-    u[setloc] = case.data[setloc + line_orient + property_names[1]][:, 3:]
-    uxy[setloc] = np.sqrt(u[setloc][:, 0]**2. + u[setloc][:, 1]**2.)
-    uz[setloc] = u[setloc][:, 2]
+    g_rans[setloc] = case.data[setloc + line_orient + property_names[0]][:, 0]
+    k_rans[setloc] = case.data[setloc + line_orient + property_names[0]][:, 1]
+    epsilon_rans[setloc] = case.data[setloc + line_orient + property_names[0]][:, 2]
+    divdev_r_rans[setloc] = case.data[setloc + line_orient + property_names[1]][:, :3]
+    divdev_r_xy_rans[setloc] = np.sqrt(divdev_r_rans[setloc][:, 0]**2 + divdev_r_rans[setloc][:, 1]**2)
+    divdev_r_z_rans[setloc] = divdev_r_rans[setloc][:, 2]
+    u_rans[setloc] = case.data[setloc + line_orient + property_names[1]][:, 3:]
+    uxy_rans[setloc] = np.sqrt(u_rans[setloc][:, 0]**2. + u_rans[setloc][:, 1]**2.)
+    uz_rans[setloc] = u_rans[setloc][:, 2]
 
 glim = [1e9, -1e9]
 klim = [1e9, -1e9]
@@ -229,7 +225,7 @@ for i in range(2):
     divdev_r_lim[i][0], divdev_r_lim[i][1] = min(divdev_r_lim[i][0], divdev_r_lim_les[i][0]), max(divdev_r_lim[i][1], divdev_r_lim_les[i][1])
     # First u_xy then u_z
     ulim[i][0], ulim[i][1] = min(ulim[i][0], ulim_les[i][0]), max(ulim[i][1],
-                                                                                                  ulim_les[i][1])
+                                                                  ulim_les[i][1])
 
 
 """
@@ -237,6 +233,7 @@ Prepare Plots By Rearranging Arrays
 """
 def regroupValueDictionary(set_locs, val_dict_rans, val_dict_blend, val_dict_les):
     """
+    NOTE: differs from Predict_Lines_RANS.py by not having ML predictions in pure RANS
     Regroup a scalar variable into the order of LES -> 1 estimator / blended injection -> RANS, for each set location. There can be no estimators, useful for variables e.g. U, TKE, epsilon.
     The return is a dictionary of set locations while, at each location, there's a list containing [LES data, ML/blended data, RANS data]
     """
@@ -244,27 +241,16 @@ def regroupValueDictionary(set_locs, val_dict_rans, val_dict_blend, val_dict_les
     for loc in set_locs:
         val_plots[loc] = []
         try:
-            # Both pure RANS and ML prediction results are stored in val_dict_rans
-            val_rans = val_dict_rans[loc][:, 0]
-            val_ml = val_dict_rans[loc][:, 1:]
-            # Number of ML estimators is the number of columns
-            n_estimators = val_ml.shape[1]
             # LES data also has n_estimators + 1 columns representing truth -> ML, but we only need truth
             val_les = val_dict_les[loc][:, 0]
         except:
-            val_rans = val_dict_rans[loc]
             val_les = val_dict_les[loc]
-            n_estimators = 0
 
+        val_rans = val_dict_rans[loc]
         val_blend = val_dict_blend[loc]
-        for i in range(n_estimators):
-            val_plots[loc].append([val_les, val_ml[:, i], val_rans])
-
         val_plots[loc].append([val_les, val_blend, val_rans])
 
     return val_plots
-
-
 
 
 def prepareLineValues(set_locs, xlocs, val_dict, val_lim, lim_multiplier=4., linespan=8., normalize=False):
@@ -336,28 +322,32 @@ def plotSeqTurbAuxiliary(plot_obj, xlim, ylim):
     Plot shaded area for SeqTurb case since some areas are not predicted.
     Also plot turbine locations.
     """
-    plot_obj.axes.fill_between(xlim, ylim[1] - 252, ylim[1], facecolor=plot_obj.gray, alpha=0.25, zorder=100)
-    plot_obj.axes.fill_between(xlim, ylim[0], ylim[0] + 252, facecolor=plot_obj.gray, alpha=0.25, zorder=100)
-    plot_obj.axes.plot(np.zeros(2), [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
-    plot_obj.axes.plot(np.ones(2)*7, [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    # plot_obj.axes.fill_between(xlim, ylim[1] - 252, ylim[1], facecolor=plot_obj.gray, alpha=0.25, zorder=100)
+    # plot_obj.axes.fill_between(xlim, ylim[0], ylim[0] + 252, facecolor=plot_obj.gray, alpha=0.25, zorder=100)
+    # plot_obj.axes.plot(np.zeros(2), [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    # plot_obj.axes.plot(np.ones(2)*7, [378, 504], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    plot_obj.axes.plot(np.zeros(2), [-.5, .5], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
+    plot_obj.axes.plot(np.ones(2)*7, [-.5, .5], color=plot_obj.gray, alpha=1, ls='-', zorder=-10)
 
-figwidth = 'full' if 'SeqTurb' in casename else 'half'
+# figwidth = 'full' if 'SeqTurb' in casename else 'half'
+figwidth = 'half'
+figheight_multiplier = 1. if figwidth == 'half' else .5
 labels = (('LES', 'TBDT', 'RANS'),
-('LES', 'TBRF', 'RANS'),
-('LES', 'TBAB', 'RANS'),
-('LES', 'TBGB', 'RANS'),
-('LES', 'Data-driven RANS', 'RANS'))
+          ('LES', 'TBRF', 'RANS'),
+          ('LES', 'TBAB', 'RANS'),
+          ('LES', 'TBGB', 'RANS'),
+          ('LES', 'Data-driven RANS', 'RANS'))
 # Because of the above plot arrangement, regroup each variable to have LES, ML, RANS order
-g_plots = regroupValueDictionary(set_locs, g, g_blend, g_les)
-k_plots = regroupValueDictionary(set_locs, k, k_blend, k_les)
-epsilon_plots = regroupValueDictionary(set_locs, epsilon, epsilon_blend, epsilon_les)
-divdev_r_xy_plots = regroupValueDictionary(set_locs, divdev_r_xy, divdev_r_xy_blend, divdev_r_xy_les)
-divdev_r_z_plots = regroupValueDictionary(set_locs, divdev_r_z, divdev_r_z_blend, divdev_r_z_les)
-uxy_plots = regroupValueDictionary(set_locs, uxy, uxy_blend, uxy_les)
-uz_plots = regroupValueDictionary(set_locs, uz, uz_blend, uz_les)
+g_plots = regroupValueDictionary(set_locs, g_rans, g_blend, g_les)
+k_plots = regroupValueDictionary(set_locs, k_rans, k_blend, k_les)
+epsilon_plots = regroupValueDictionary(set_locs, epsilon_rans, epsilon_blend, epsilon_les)
+divdev_r_xy_plots = regroupValueDictionary(set_locs, divdev_r_xy_rans, divdev_r_xy_blend, divdev_r_xy_les)
+divdev_r_z_plots = regroupValueDictionary(set_locs, divdev_r_z_rans, divdev_r_z_blend, divdev_r_z_les)
+uxy_plots = regroupValueDictionary(set_locs, uxy_rans, uxy_blend, uxy_les)
+uz_plots = regroupValueDictionary(set_locs, uz_rans, uz_blend, uz_les)
 ls = ('-.', '-', '--')
-xlim = (-2, 5) if figwidth == 'half' else (-2, 12)
-ylim = (-1., 1.) if 'ParTurb' not in casename else (-3.5, 3.5)
+xlim = (-2, 5) if 'SeqTurb' not in casename else (0, 11)
+ylim = (-3.5, 3.5) if 'ParTurb' in casename else (-1.5, 1.5)
 # Prepare line values
 # g = prepareLineValues(set_locs, offset_d, g_plots, glim)
 # Normalized G = G/|G|_max
@@ -380,7 +370,7 @@ Plot G for 3 Horizontal Lines in 5 figures
 # 5 plots for each variables, starting with G
 fignames = ["G" + str(i) for i in range(5)]
 # Normalized G, renamed to P_k
-xlabel, ylabel = (r'$P_k/|P_k|_\mathrm{max}$', r'$d/D$')
+xlabel, ylabel = (r'$P_k/0.5|P_k|_\mathrm{max} + d/D$', r'$d/D$')
 # Normalized y
 list_y = [case.coor[set_locs[i] + line_orient + property_names[0]]/126.
           for i in range(len(set_locs))]
@@ -394,17 +384,18 @@ for i in range(len(list_y)):
 
 
 # [DEPRECATED]
-if figwidth == 'full':
-    yoffset = 255.
-    for i in range(3, 6):
-        list_y[i] += yoffset
+# if figwidth == 'full':
+#     yoffset = 255.
+#     for i in range(3, 6):
+#         list_y[i] += yoffset
 
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(g[set_locs[i]][i0]).T for i in range(len(set_locs))]
     gplot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
                    save=save_fig, show=show,
                    figdir=case.result_path,
-                   figwidth=figwidth, xlim=xlim, ylim=ylim)
+                   figwidth=figwidth, xlim=xlim, ylim=ylim,
+                   figheight_multiplier=figheight_multiplier)
     gplot.initializeFigure()
     gplot.markercolors = None
     # Go through each line location
@@ -427,13 +418,16 @@ for i0 in range(len(fignames)):
     gplot.axes.plot((-1, -1), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
     gplot.axes.plot((1, 1), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
     gplot.axes.plot((3, 3), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
+    if 'SeqTurb' not in casename:
+        plt.xticks(np.arange(-1, 5), ('-1', '0', '1', '2', '3', '4', '5', '', '', '', '', ''))
+    else:
+        plt.xticks(np.arange(0, 12), ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'))
 
-    plt.xticks(np.arange(-1, 5), ('0', '0.5', '1', '', '', '', '', '', '', '', '', ''))
-    # plt.xticks((-1, 1, 3, 5), ('0', '1', '', '', '', '', '', '', '', '', ''))
     gplot.axes.grid(alpha=.25)
     gplot.axes.set_xlabel(gplot.xlabel)
     gplot.axes.set_ylabel(gplot.ylabel)
     gplot.axes.set_ylim(gplot.ylim)
+    gplot.axes.set_xlim(gplot.xlim)
     # Disable legend and provide it in caption
     # gplot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
     plt.savefig(gplot.figdir + '/' + gplot.name + '.' + ext, transparent=False,
@@ -448,7 +442,7 @@ Plot div(dev(Rij))_xy and div(dev(Rij))_z Lines for 3 Locations in 5 Figures
 """
 # 5 plots for each variables, currently div(dev(R))_xy
 fignames = ["divDevRxy" + str(i) for i in range(5)]
-xlabel = r'$\left( \nabla \cdot R_{ij}^D \right)_\mathrm{hor}/\left( \nabla \cdot R_{ij}^D \right)_\mathrm{hor, max}$'
+xlabel = r'$\left( \nabla \cdot R_{ij}^D \right)_\mathrm{hor}/0.5\left( \nabla \cdot R_{ij}^D \right)_\mathrm{hor, max} + d/D$'
 list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::3]/126.
           for i in range(len(set_locs))]
 # Normalized y mean
@@ -459,13 +453,14 @@ for i in range(len(list_y)):
     list_y[i] -= ymean if i < 3 else ymean1
 
 # Go through every figure
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(divdev_r_xy[set_locs[i]][i0]).T[::3] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     divdev_r_xy_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
-                   save=save_fig, show=show,
-                   figdir=case.result_path,
-                   figwidth=figwidth, xlim=xlim, ylim=ylim)
+                              save=save_fig, show=show,
+                              figdir=case.result_path,
+                              figwidth=figwidth, xlim=xlim, ylim=ylim,
+                              figheight_multiplier=figheight_multiplier)
     divdev_r_xy_plot.initializeFigure()
     divdev_r_xy_plot.markercolors = None
     # Go through each line location
@@ -488,13 +483,16 @@ for i0 in range(len(fignames)):
     divdev_r_xy_plot.axes.plot((-1, -1), (min(list_y[0]), max(list_y[0])), color=divdev_r_xy_plot.gray, alpha=.8, ls=':')
     divdev_r_xy_plot.axes.plot((1, 1), (min(list_y[0]), max(list_y[0])), color=divdev_r_xy_plot.gray, alpha=.8, ls=':')
     divdev_r_xy_plot.axes.plot((3, 3), (min(list_y[0]), max(list_y[0])), color=divdev_r_xy_plot.gray, alpha=.8, ls=':')
+    if 'SeqTurb' not in casename:
+        plt.xticks(np.arange(-1, 5), ('-1', '0', '1', '2', '3', '4', '5', '', '', '', '', ''))
+    else:
+        plt.xticks(np.arange(-1, 12), ('-1', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'))
 
-    plt.xticks(np.arange(-1, 5), ('0', '0.5', '1', '', '', '', '', '', '', '', '', ''))
-    # plt.xticks((-1, 1, 3, 5), ('0', '1', '', '', '', '', '', '', '', '', ''))
     divdev_r_xy_plot.axes.grid(alpha=.25)
     divdev_r_xy_plot.axes.set_xlabel(divdev_r_xy_plot.xlabel)
     divdev_r_xy_plot.axes.set_ylabel(divdev_r_xy_plot.ylabel)
     divdev_r_xy_plot.axes.set_ylim(divdev_r_xy_plot.ylim)
+    divdev_r_xy_plot.axes.set_xlim(divdev_r_xy_plot.xlim)
     plt.savefig(divdev_r_xy_plot.figdir + '/' + divdev_r_xy_plot.name + '.' + ext, transparent=False,
                 dpi=dpi)
     print('\nFigure ' + divdev_r_xy_plot.name + '.' + ext + ' saved in ' + divdev_r_xy_plot.figdir)
@@ -507,13 +505,14 @@ for i0 in range(len(fignames)):
 fignames = ["divDevRz" + str(i) for i in range(5)]
 list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::5] for i in range(len(set_locs))]
 # Go through every figure
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(divdev_r_z[set_locs[i]][i0]).T[::5] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     divdev_r_z_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
-                              save=save_fig, show=show,
-                              figdir=case.result_path,
-                              figwidth=figwidth, xlim=xlim)
+                             save=save_fig, show=show,
+                             figdir=case.result_path,
+                             figwidth=figwidth, xlim=xlim,
+                             figheight_multiplier=figheight_multiplier)
     divdev_r_z_plot.initializeFigure()
     divdev_r_z_plot.markercolors = None
     # Go through each line location
@@ -521,7 +520,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels[i0][j] if i == 0 else None
-            divdev_r_z_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=divdev_r_z_plot.colors[j], alpha=0.75, ls=ls[j])
+            divdev_r_z_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=divdev_r_z_plot.colors[j], alpha=0.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -543,13 +542,14 @@ fignames = ["k"]
 labels2 = ('LES', 'Data-driven RANS', 'RANS')
 list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::5] for i in range(len(set_locs))]
 # Go through every figure
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(k[set_locs[i]][i0]).T[::5] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     k_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
-                             save=save_fig, show=show,
-                             figdir=case.result_path,
-                             figwidth=figwidth, xlim=xlim)
+                    save=save_fig, show=show,
+                    figdir=case.result_path,
+                    figwidth=figwidth, xlim=xlim,
+                    figheight_multiplier=figheight_multiplier)
     k_plot.initializeFigure()
     k_plot.markercolors = None
     # Go through each line location
@@ -557,7 +557,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            k_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=k_plot.colors[j], alpha=0.75, ls=ls[j])
+            k_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=k_plot.colors[j], alpha=0.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -583,13 +583,14 @@ fignames = ["epsilon"]
 labels2 = ('LES', 'Data-driven RANS', 'RANS')
 list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::5] for i in range(len(set_locs))]
 # Go through every figure
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(epsilon[set_locs[i]][i0]).T[::5] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     epsilon_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
-                    save=save_fig, show=show,
-                    figdir=case.result_path,
-                    figwidth=figwidth, xlim=xlim)
+                          save=save_fig, show=show,
+                          figdir=case.result_path,
+                          figwidth=figwidth, xlim=xlim,
+                          figheight_multiplier=figheight_multiplier)
     epsilon_plot.initializeFigure()
     epsilon_plot.markercolors = None
     # Go through each line location
@@ -597,7 +598,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            epsilon_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=epsilon_plot.colors[j], alpha=0.75, ls=ls[j])
+            epsilon_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=epsilon_plot.colors[j], alpha=0.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -623,13 +624,14 @@ fignames = ["Uxy"]
 labels2 = ('LES', 'Data-driven RANS', 'RANS')
 list_y = [case.coor[set_locs[i] + line_orient + property_names[0]][::5] for i in range(len(set_locs))]
 # Go through every figure
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(uxy[set_locs[i]][i0]).T[::5] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     uxy_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
-                   save=save_fig, show=show,
-                   figdir=case.result_path,
-                   figwidth=figwidth, xlim=xlim)
+                      save=save_fig, show=show,
+                      figdir=case.result_path,
+                      figwidth=figwidth, xlim=xlim,
+                      figheight_multiplier=figheight_multiplier)
     uxy_plot.initializeFigure()
     uxy_plot.markercolors = None
     # Go through each line location
@@ -637,7 +639,7 @@ for i0 in range(len(fignames)):
         # Then for each location, go through each line
         for j in range(3):
             label = labels2[j] if i == 0 else None
-            uxy_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=uxy_plot.colors[j], alpha=0.75, ls=ls[j])
+            uxy_plot.axes.plot(list_x[i][:, j], max(list_y[0]) - list_y[i], label=label, color=uxy_plot.colors[j], alpha=0.8, ls=ls[j])
 
     # Plot turbine and shade unpredicted area too
     if 'OneTurb' in casename:
@@ -666,15 +668,16 @@ ymean1 = (max(list_y[-1]) + min(list_y[-1]))/2.
 for i in range(len(list_y)):
     list_y[i] -= ymean if i < 3 else ymean1
 
-xlabel = r'$u_z/|u_z|_\mathrm{max}$'
+xlabel = r'$\langle \mathrm{\mathbf{u}}_z \rangle/0.5|\langle \mathrm{\mathbf{u}}_z \rangle|_\mathrm{max} + d/D$'
 # Go through every figure
-for i0 in range(len(fignames)):
+for i0 in range(1):
     list_x = [np.array(uz[set_locs[i]][i0]).T[::3] for i in range(len(set_locs))]
     # First plot of G for LES, TBDT, TBRF
     uz_plot = Plot2D(list_x=list_x, list_y=list_y, name=fignames[i0], xlabel=xlabel, ylabel=ylabel,
-                              save=save_fig, show=show,
-                              figdir=case.result_path,
-                              figwidth=figwidth, xlim=xlim, ylim=ylim)
+                     save=save_fig, show=show,
+                     figdir=case.result_path,
+                     figwidth=figwidth, xlim=xlim, ylim=ylim,
+                     figheight_multiplier=figheight_multiplier)
     uz_plot.initializeFigure()
     uz_plot.markercolors = None
     # Go through each line location
@@ -696,13 +699,15 @@ for i0 in range(len(fignames)):
     uz_plot.axes.plot((-1, -1), (min(list_y[0]), max(list_y[0])), color=uz_plot.gray, alpha=.8, ls=':')
     uz_plot.axes.plot((1, 1), (min(list_y[0]), max(list_y[0])), color=uz_plot.gray, alpha=.8, ls=':')
     uz_plot.axes.plot((3, 3), (min(list_y[0]), max(list_y[0])), color=uz_plot.gray, alpha=.8, ls=':')
-
-    plt.xticks(np.arange(-1, 5), ('0', '0.5', '1', '', '', '', '', '', '', '', '', ''))
-    # plt.xticks((-1, 1, 3, 5), ('0', '1', '', '', '', '', '', '', '', '', ''))
+    if 'SeqTurb' not in casename:
+        plt.xticks(np.arange(-1, 5), ('-1', '0', '1', '2', '3', '4', '5', '', '', '', '', ''))
+    else:
+        plt.xticks(np.arange(0, 12), ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'))
     uz_plot.axes.grid(alpha=.25)
     uz_plot.axes.set_xlabel(uz_plot.xlabel)
     uz_plot.axes.set_ylabel(uz_plot.ylabel)
     uz_plot.axes.set_ylim(uz_plot.ylim)
+    uz_plot.axes.set_xlim(uz_plot.xlim)
     plt.savefig(uz_plot.figdir + '/' + uz_plot.name + '.' + ext, transparent=False,
                 dpi=dpi)
     print('\nFigure ' + uz_plot.name + '.' + ext + ' saved in ' + uz_plot.figdir)

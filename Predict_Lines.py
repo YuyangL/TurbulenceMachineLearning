@@ -31,7 +31,7 @@ figfolder = 'Result'
 xlabel = 'Horizontal distance [m]'
 # Subsample for barymap coordinates, jump every "subsample"
 subsample = 50  # int
-figheight_multiplier = 1.  # float
+figheight_multiplier = 1. if 'SeqTurb' not in casename else .5  # float
 # Save figures and show figures
 save_fig, show = True, False  # bool; bool
 # If save figure, figure extension and DPI
@@ -213,7 +213,7 @@ xlim = (-2, 5) if figwidth == 'half' else (-2, 12)
 g = prepareLineValues(set_types, offset_d, g, (gmin, gmax), normalize=True)
 figname, figname2 = 'G1', 'G2'
 # Normalized G, namely P_k/|P_k|_max
-xlabel, ylabel = (r'$\langle P_k \rangle/|\langle P_k \rangle|_\mathrm{max}$', r'$d/D$')
+xlabel, ylabel = (r'$\langle P_k \rangle/0.5|\langle P_k \rangle|_\mathrm{max} + d/D$', r'$d/D$')
 
 # Normalized y
 list_y = [case.coor[set_types[i] + line_orient + property_names[0]]/126. for i in range(len(set_types))]
@@ -241,10 +241,15 @@ gplot.markercolors = None
 # Go through each line location
 for i in range(len(list_x)):
     # Then for each location, go through each line
-    for j in range(3):
-        label = labels[j] if i == 0 else None
-        # Plot each prediction and flip y
-        gplot.axes.plot(list_x[i][:, j], -list_y[i], label=label, color=gplot.colors[j], alpha=.8, ls=ls[j])
+    # for j in range(3):
+    #     label = labels[j] if i == 0 else None
+    #     # Plot each prediction and flip y
+    #     gplot.axes.plot(list_x[i][:, j], -list_y[i], label=label, color=gplot.colors[j], alpha=.8, ls=ls[j])
+
+    # Plot LES, TBRF, TBAB
+    gplot.axes.plot(list_x[i][:, 0], -list_y[i], label='LES', color=gplot.colors[0], alpha=.8, ls=ls[0])
+    gplot.axes.plot(list_x[i][:, 2], -list_y[i], label='TBRF', color=gplot.colors[1], alpha=.8, ls=ls[1])
+    gplot.axes.plot(list_x[i][:, 3], -list_y[i], label='TBAB', color=gplot.colors[2], alpha=.8, ls=ls[2])
 
 # Plot turbine and shade unpredicted area too
 if 'OneTurb' in casename:
@@ -266,14 +271,14 @@ gplot.axes.plot((6, 6), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alph
 gplot.axes.plot((8, 8), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
 gplot.axes.plot((10, 10), (min(list_y[0]), max(list_y[0])), color=gplot.gray, alpha=.8, ls=':')
 # uxy_plot.axes.legend(loc='lower left', shadow=False, fancybox=False, ncol=3)
-plt.xticks(np.arange(-1, 12), ('0', '', '1', '', '', '', '', '', '', '', '', ''))
-plt.xticks((-1, 1, 3, 5, 6, 8, 10), ('0', '1', '', '', '', '', '', '', '', '', ''))
+plt.xticks(np.arange(-1, 12), ('-1', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'))
+# plt.xticks((-1, 1, 3, 5, 6, 8, 10), ('0', '1', '', '', '', '', '', '', '', '', ''))
 gplot.axes.grid(which='major', alpha=.25)
 gplot.axes.set_xlabel(gplot.xlabel)
 gplot.axes.set_ylabel(gplot.ylabel)
 gplot.axes.set_ylim(gplot.ylim)
 # Don't plot legend cuz no space
-# uxy_plot.axes.legend(loc='best')
+# gplot.axes.legend(loc='best')
 plt.savefig(gplot.figdir + '/' + gplot.name + '.' + ext, transparent=False,
             dpi=dpi)
 print('\nFigure ' + gplot.name + '.' + ext + ' saved in ' + gplot.figdir)
